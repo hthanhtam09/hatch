@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Lato phuc vu tu Flask (/fonts -> hatch/fonts), cung font voi PDF nen xem truoc khop file in */
+@font-face { font-family: Lato; src: url(/fonts/Lato-Regular.ttf); font-weight: 400; font-display: swap; }
+@font-face { font-family: Lato; src: url(/fonts/Lato-Bold.ttf); font-weight: 700; font-display: swap; }
+@font-face { font-family: Lato; src: url(/fonts/Lato-Italic.ttf); font-style: italic; font-display: swap; }
+
+@theme {
+  --font-sans: Lato, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-paper: #f3f2ee;
+  --color-soft: #f7f6f2;
+  --color-line: #e2e0d9;
+  --color-line2: #cfccc3;
+  --color-ink: #1c1b19;
+  --color-muted: #6b6862;
+  --color-accent: #d9661f;
+  --color-accent-soft: #fbeadf;
+  --color-stage: #5c6b64;
+  --color-ok: #2f8a57;
+  --color-warn: #b7791f;
+  --color-bad: #c2410c;
+  --color-trim: #e0484d;
+  --color-safe: #1f8fc4;
+  --color-art: #2f9e5b;
+  --color-gutter: #7a5cc7;
+}
+
+html, body { height: 100%; }
+body { background: var(--color-paper); color: var(--color-ink); }
+input[type="range"] { accent-color: var(--color-ink); }
+input[type="checkbox"] { accent-color: var(--color-ink); }
+
+/* lop click tren tranh (svg tu Flask) */
+.sheet svg { display: block; width: 100%; height: auto; }
+.hits .hit { fill: transparent; stroke: none; }
+.editing .hits .hit { cursor: pointer; }
+.editing .hits .hit:hover { fill: rgb(217 102 31 / .18); }
+.hits .hit.sel { fill: rgb(217 102 31 / .32); stroke: var(--color-accent); stroke-width: 1.6; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

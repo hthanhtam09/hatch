@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hatch Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 26 26%22%3E%3Cpolygon points=%222,24 13,2 24,24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%222%22/%3E%3C/svg%3E">
+<style>
+  @font-face{font-family:Lato;src:url(/fonts/Lato-Regular.ttf);font-weight:400}
+  @font-face{font-family:Lato;src:url(/fonts/Lato-Bold.ttf);font-weight:700}
+  @font-face{font-family:Lato;src:url(/fonts/Lato-Italic.ttf);font-style:italic}
+  :root{
+    --bg:#f3f2ee; --panel:#fff; --line:#e2e0d9; --line2:#cfccc3;
+    --ink:#1c1b19; --muted:#6b6862; --soft:#f7f6f2;
+    --accent:#d9661f; --accent-soft:#fbeadf;
+    --stage:#5c6b64;
+    --ok:#2f8a57; --warn:#b7791f; --bad:#c2410c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font:14px/1.45 Lato,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--bg);
+       display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  button,input,select,textarea{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  [hidden]{display:none!important}
+
+  /* ---------- thanh tren ---------- */
+  header{display:flex;align-items:center;gap:18px;padding:0 16px;height:56px;background:var(--panel);border-bottom:1px solid var(--line);flex:none}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px;white-space:nowrap}
+  nav.steps{display:flex;gap:4px;margin-left:12px}
+  nav.steps button{border:0;background:none;padding:8px 14px;border-radius:8px;cursor:pointer;color:var(--muted);font-weight:700;display:flex;gap:8px;align-items:center}
+  nav.steps button b{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--soft);border:1px solid var(--line2);font-size:12px}
+  nav.steps button[aria-selected=true]{color:var(--ink);background:var(--soft)}
+  nav.steps button[aria-selected=true] b{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .save{margin-left:auto;color:var(--muted);font-size:12.5px;white-space:nowrap}
+  .btn{border:1px solid var(--line2);background:var(--panel);border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+  .btn:hover{border-color:var(--ink)}
+  .btn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+  .btn.primary:hover{background:#000}
+  .btn.ghost{border-color:transparent;background:none}
+  .btn.ghost:hover{background:var(--soft)}
+  .btn.danger{color:var(--bad)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.sm{padding:4px 9px;font-size:12.5px}
+  .btn.block{width:100%;justify-content:center}
+
+  /* ---------- khung chung ---------- */
+  .view{flex:1;min-height:0;display:grid}
+  #v-designs{grid-template-columns:200px 1fr 300px}
+  #v-book,#v-cover{grid-template-columns:330px 1fr}
+  .panel{background:var(--panel);overflow-y:auto;min-height:0}
+  .panel.right{border-left:1px solid var(--line)}
+  .panel.left{border-right:1px solid var(--line)}
+  .sec{padding:14px 16px;border-bottom:1px solid var(--line)}
+  .sec h3{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:700}
+  .field{margin:10px 0}
+  .field>label,.lbl{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-bottom:4px;gap:8px}
+  .field output{color:var(--muted);font-variant-numeric:tabular-nums;font-size:12.5px}
+  .hint{font-size:12px;color:var(--muted);margin:3px 0 0}
+  input[type=range]{width:100%;accent-color:var(--ink);margin:2px 0}
+  input[type=text],input[type=number],textarea,select{width:100%;border:1px solid var(--line2);border-radius:7px;padding:7px 9px;background:#fff}
+  textarea{resize:vertical;min-height:70px}
+  .check{display:flex;gap:9px;align-items:flex-start;font-size:13px;margin:9px 0;cursor:pointer}
+  .check input{accent-color:var(--ink);width:16px;height:16px;margin:1px 0 0;flex:none}
+  .check small{display:block;color:var(--muted);font-size:12px}
+  .seg{display:flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:#fff}
+  .seg button{flex:1;border:0;background:none;padding:6px 8px;font-size:12.5px;cursor:pointer;white-space:nowrap}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button[aria-pressed=true]{background:var(--ink);color:#fff}
+  details.adv summary{cursor:pointer;font-size:13px;color:var(--muted);padding:4px 0;list-style:none}
+  details.adv summary::before{content:"▸ "}
+  details.adv[open] summary::before{content:"▾ "}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+  /* ---------- danh sach tranh ---------- */
+  .rail{display:flex;flex-direction:column}
+  .rail .head{padding:12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+  .rail .list{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+  .item{display:grid;grid-template-columns:52px 1fr;gap:9px;align-items:center;padding:6px;border-radius:9px;cursor:pointer;border:1.5px solid transparent;position:relative}
+  .item:hover{background:var(--soft)}
+  .item.sel{border-color:var(--ink);background:var(--soft)}
+  .item .th{width:52px;aspect-ratio:8.5/11;background:#fff;border:1px solid var(--line);border-radius:3px;overflow:hidden;display:grid;place-items:center}
+  .item .th img{width:100%;height:100%;object-fit:contain}
+  .item .nm{font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .mt{font-size:11.5px;color:var(--muted)}
+  .item .ops{position:absolute;right:4px;top:4px;display:none;gap:2px}
+  .item:hover .ops,.item.sel .ops{display:flex}
+  .item .ops button{border:0;background:#fff;border-radius:5px;width:22px;height:22px;cursor:pointer;color:var(--muted);box-shadow:0 0 0 1px var(--line)}
+  .item .ops button:hover{color:var(--ink)}
+  .drop-hint{border:1.5px dashed var(--line2);border-radius:10px;padding:16px 10px;text-align:center;color:var(--muted);font-size:12.5px}
+  body.dragging .stage-wrap::after{content:"Thả ảnh vào đây để thêm tranh";position:absolute;inset:12px;border:3px dashed #fff;border-radius:16px;
+       display:grid;place-items:center;color:#fff;font-size:20px;font-weight:700;background:rgba(0,0,0,.25);z-index:10}
+
+  /* ---------- san khau ---------- */
+  .stage-wrap{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--stage)}
+  .toolbar{display:flex;align-items:center;gap:10px;padding:10px 14px;flex-wrap:wrap;color:#eef2ef}
+  .toolbar .seg,.toolbar .btn{background:#fff;color:var(--ink)}
+  .toolbar .seg button[aria-pressed=true]{color:#fff}
+  .btn.on,.toolbar .btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .toolbar .sp{flex:1}
+  .toolbar .zoom{display:flex;align-items:center;gap:6px;font-size:12.5px}
+  .toolbar .zoom input[type=range]{width:110px;accent-color:#fff}
+  .toolbar .zoom input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;margin:0}
+  .status{font-size:12.5px;color:#dfe6e2;font-variant-numeric:tabular-nums}
+  .stage{flex:1;overflow:auto;display:flex;gap:28px;justify-content:center;align-items:flex-start;padding:30px 30px 120px}
+  .sheet{flex:none;margin:0;position:relative}
+  .sheet .paper{background:#fff;box-shadow:0 18px 40px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.2)}
+  .sheet svg{display:block;width:100%;height:auto}
+  .sheet figcaption{color:#fff;font-size:12.5px;margin-bottom:6px;font-weight:700}
+  .busy .sheet{opacity:.6;transition:opacity .15s}
+  .empty{color:#eef2ef;text-align:center;margin:10vh auto;max-width:460px}
+  .empty h2{font-size:26px;margin:0 0 10px;color:#fff}
+  .empty ol{text-align:left;line-height:1.8;margin:18px auto;display:inline-block}
+  .legend{display:flex;gap:14px;padding:0 14px 8px;color:#e5ebe7;font-size:12px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:14px;border-top:2px solid;vertical-align:middle;margin-right:5px}
+
+  /* chon mang */
+  .hits .hit{fill:transparent;stroke:none;cursor:default}
+  .editing .hits .hit{cursor:pointer}
+  .editing .hits .hit:hover{fill:rgba(217,102,31,.18)}
+  .hits .hit.sel{fill:rgba(217,102,31,.32);stroke:var(--accent);stroke-width:1.6}
+  .hits .hit.cand{fill:rgba(47,138,87,.3);stroke:var(--ok);stroke-width:1.4}
+
+  .editbar{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);background:#fff;border-radius:14px;
+           box-shadow:0 10px 30px rgba(0,0,0,.3);padding:10px 12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;max-width:calc(100% - 30px);z-index:5}
+  .editbar .grp{display:flex;gap:4px;align-items:center}
+  .editbar .lbl{margin:0;font-size:11.5px;color:var(--muted);flex-direction:column;align-items:flex-start}
+  .editbar .div{width:1px;align-self:stretch;background:var(--line)}
+  .lv{border:1px solid var(--line2);background:#fff;border-radius:8px;width:44px;padding:4px 0 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;font-size:10.5px;gap:1px}
+  .lv svg{width:24px;height:24px}
+  .lv[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
+  .lv kbd{font:10px Lato;color:var(--muted)}
+  .editbar .msg{font-size:12.5px;color:var(--muted);max-width:260px}
+
+  /* ---------- sach ---------- */
+  .pages{overflow:auto;padding:24px 30px 60px;background:var(--stage)}
+  .pages-head{display:flex;gap:14px;align-items:center;color:#fff;margin-bottom:18px;flex-wrap:wrap}
+  .pages-head h2{margin:0;font-size:18px}
+  .pages-head .meta{color:#dfe6e2;font-size:13px}
+  .spreads{display:flex;flex-wrap:wrap;gap:26px 30px}
+  .spread{display:flex;flex-direction:column;gap:5px}
+  .spread .pp{display:flex}
+  .pg{width:120px;aspect-ratio:8.5/11;background:#fff;position:relative;cursor:zoom-in;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+  .pg.ghost{visibility:hidden}
+  .pg svg{width:100%;height:100%;display:block}
+  .pg .tag{position:absolute;left:4px;top:4px;font-size:10px;background:rgba(0,0,0,.65);color:#fff;border-radius:4px;padding:1px 5px}
+  .spread .cap{display:flex;justify-content:space-between;color:#dfe6e2;font-size:11px;padding:0 3px}
+  .checks{margin:0;padding:0;list-style:none;font-size:13px}
+  .checks li{display:flex;gap:8px;padding:5px 0;align-items:flex-start}
+  .checks li::before{content:"✓";color:var(--ok);font-weight:700;width:14px;flex:none}
+  .checks li.warn::before{content:"!";color:var(--warn)}
+  .checks li.bad::before{content:"✕";color:var(--bad)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0;font-variant-numeric:tabular-nums;text-align:right}
+
+  /* ---------- bia ---------- */
+  .cover-stage{overflow:auto;padding:24px 30px 60px;background:var(--stage);display:flex;flex-direction:column;gap:14px}
+  .cover-stage .paper{background:#fff;box-shadow:0 18px 40px rgba(0,0,0,.3);align-self:flex-start}
+  .cover-stage svg{display:block;width:100%;height:auto}
+
+  /* ---------- hop thoai, thong bao ---------- */
+  dialog{border:0;border-radius:12px;padding:0;max-width:94vw;max-height:94vh;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  dialog::backdrop{background:rgba(0,0,0,.55)}
+  dialog .dh{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);gap:12px}
+  dialog .db{padding:16px;overflow:auto;background:var(--stage);max-height:calc(94vh - 52px)}
+  dialog .db .paper{width:min(560px,80vw);margin:auto;background:#fff}
+  .menu{position:absolute;background:#fff;border:1px solid var(--line2);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px;z-index:20;min-width:220px}
+  .menu button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;cursor:pointer}
+  .menu button:hover{background:var(--soft)}
+  .menu small{display:block;color:var(--muted);font-size:11.5px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:9px;
+         font-size:13.5px;opacity:0;pointer-events:none;transition:all .2s;z-index:50;max-width:80vw}
+  .toast.show{opacity:1;transform:translateX(-50%)}
+  .kbd-help{font-size:12px;color:var(--muted);line-height:1.8}
+  .kbd-help kbd{border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;padding:0 5px;font:11px Lato;background:#fff}
+  @media (max-width:1100px){#v-designs{grid-template-columns:170px 1fr 260px}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg width="24" height="24" viewBox="0 0 26 26" aria-hidden="true"><polygon points="2,24 13,2 24,24" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 22l7-14M11 23l6-12M14 24l5-10" stroke="currentColor"/></svg>
+    Hatch Studio
+  </div>
+  <nav class="steps" role="tablist">
+    <button role="tab" data-tab="designs" aria-selected="true"><b>1</b>Tranh</button>
+    <button role="tab" data-tab="book" aria-selected="false"><b>2</b>Ruột sách</button>
+    <button role="tab" data-tab="cover" aria-selected="false"><b>3</b>Bìa</button>
+  </nav>
+  <span class="save" id="saveState">Đang mở dự án…</span>
+</header>
+
+<!-- ============================ 1. TRANH ============================ -->
+<section class="view" id="v-designs">
+  <div class="panel left rail">
+    <div class="head">
+      <label class="btn primary block" for="file">+ Thêm ảnh</label>
+      <input type="file" id="file" accept=".png,.jpg,.jpeg,.webp" multiple hidden>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+
+  <div class="stage-wrap" id="stageWrap">
+    <div class="toolbar">
+      <div class="seg" id="viewSeg">
+        <button data-v="page" aria-pressed="true">Trang tô</button>
+        <button data-v="key" aria-pressed="false">Đáp án</button>
+        <button data-v="both" aria-pressed="false">Cả hai</button>
+      </div>
+      <button class="btn" id="editBtn" title="Bấm vào mảng để đổi mức tô, hướng nét, gộp hoặc tách (phím E)">✎ Sửa mảng</button>
+      <span class="status" id="status"></span>
+      <span class="sp"></span>
+      <label class="zoom"><input type="checkbox" id="showGuides" checked> Lề in</label>
+      <label class="zoom">Thu phóng <input type="range" id="zoom" min="300" max="1400" step="10" value="620"></label>
+    </div>
+    <div class="legend" id="legend">
+      <span><i style="color:#e0484d"></i>Đường cắt</span><span><i style="color:#1f8fc4"></i>Lề an toàn KDP</span>
+      <span><i style="color:#2f9e5b"></i>Vùng đặt tranh</span><span><i style="color:#7a5cc7"></i>Gáy sách</span>
+    </div>
+    <div class="stage" id="stage">
+      <div class="empty" id="empty">
+        <h2>Bắt đầu một cuốn sách</h2>
+        <div>Bấm <b>+ Thêm ảnh</b> hoặc kéo thả ảnh con vật vào đây. Mỗi ảnh thành một trang tô trong sách.</div>
+        <ol>
+          <li>Dùng line art PNG nền trong suốt cho kết quả sạch nhất.</li>
+          <li>Chỉnh số mảng, độ đậm nhạt ở cột phải.</li>
+          <li>Bấm <b>✎ Sửa mảng</b> để sửa từng mảng bằng tay.</li>
+          <li>Sang bước <b>2 Ruột sách</b> để kiểm tra và xuất PDF.</li>
+        </ol>
+      </div>
+    </div>
+    <div class="editbar" id="editbar" hidden>
+      <div class="grp" id="lvBtns"></div>
+      <div class="div"></div>
+      <div class="grp">
+        <button class="btn sm" id="rotL" title="Xoay hướng nét −15° (phím Q)">↺ 15°</button>
+        <span id="angOut" style="min-width:36px;text-align:center;font-size:12.5px">–</span>
+        <button class="btn sm" id="rotR" title="Xoay hướng nét +15° (phím W)">↻ 15°</button>
+      </div>
+      <div class="div"></div>
+      <div class="grp">
+        <button class="btn sm" id="mergeBtn" title="Gộp mảng đang chọn với một mảng kề bên (phím M)">Gộp</button>
+        <button class="btn sm" id="splitBtn" title="Tách đôi mảng đang chọn (phím S)">Tách</button>
+      </div>
+      <div class="div"></div>
+      <div class="grp">
+        <button class="btn sm" id="undoBtn" title="Hoàn tác (Ctrl/Cmd+Z)">↶ Hoàn tác</button>
+      </div>
+      <span class="msg" id="editMsg">Bấm vào một mảng để chọn.</span>
+    </div>
+  </div>
+
+  <div class="panel right" id="dPanel">
+    <div class="sec" id="noDesign"><p class="hint" style="margin:0">Chưa có tranh nào. Thêm ảnh ở cột trái.</p></div>
+    <div id="dControls" hidden>
+      <div class="sec">
+        <h3>Tranh này</h3>
+        <div class="field"><input type="text" id="dName" placeholder="Tên tranh"></div>
+        <div class="field">
+          <span class="lbl">Mức chi tiết</span>
+          <div class="seg" id="presetSeg">
+            <button data-p="160">Ít mảng</button><button data-p="260">Vừa</button><button data-p="420">Nhiều mảng</button>
+          </div>
+        </div>
+        <div class="field"><label for="facets">Số mảng <output data-for="facets"></output></label>
+          <input type="range" id="facets" data-eng min="60" max="700" step="10"></div>
+        <div class="field"><label for="white">Mảng để trắng <output data-for="white" data-fmt="pct"></output></label>
+          <input type="range" id="white" data-eng min="0" max="0.4" step="0.01">
+          <p class="hint">Nhiều mảng trắng thì tranh sáng, nhẹ tay hơn.</p></div>
+        <div class="field"><label for="black">Mảng tô đen sẵn <output data-for="black" data-fmt="pct"></output></label>
+          <input type="range" id="black" data-eng min="0" max="0.15" step="0.005"></div>
+        <div class="field"><label for="lineart">Nét chi tiết từ ảnh <output data-for="lineart" data-fmt="lineart"></output></label>
+          <input type="range" id="lineart" data-eng min="0" max="0.3" step="0.01">
+          <p class="hint">Kéo về 0 nếu tranh bị rối.</p></div>
+        <label class="check"><input type="checkbox" id="accents" data-eng><span>Tô đen sẵn mắt, mũi<small>Vùng rất tối trong ảnh</small></span></label>
+        <label class="check"><input type="checkbox" id="frame"><span>Khung đen tràn lề<small>Nền đen ra tới mép giấy (cần bật bleed)</small></span></label>
+        <details class="adv">
+          <summary>Nâng cao</summary>
+          <label class="check"><input type="checkbox" id="grabcut" data-eng><span>Tự tách nền<small>Cho ảnh chụp không có nền trong suốt</small></span></label>
+          <div class="field"><label for="merge">Gộp tam giác thành tứ giác <output data-for="merge" data-fmt="pct"></output></label>
+            <input type="range" id="merge" data-eng min="0" max="1" step="0.05"></div>
+          <div class="field"><label for="min_angle_gap">Hai mảng kề lệch hướng tối thiểu <output data-for="min_angle_gap" data-fmt="deg"></output></label>
+            <input type="range" id="min_angle_gap" data-eng min="0" max="60" step="5"></div>
+          <div class="field"><label for="seed">Cách chia mảng <output data-for="seed"></output></label>
+            <div class="row2" style="grid-template-columns:1fr auto"><input type="range" id="seed" data-eng min="1" max="999" step="1">
+            <button class="btn sm" id="shuffle" type="button">Xáo lại</button></div></div>
+        </details>
+      </div>
+      <div class="sec">
+        <h3>Sửa tay</h3>
+        <p class="hint" style="margin:0 0 8px" id="editCount">Chưa có chỉnh sửa.</p>
+        <button class="btn sm" id="clearEdits" disabled>Xoá mọi chỉnh sửa</button>
+        <div class="kbd-help" style="margin-top:10px">
+          <kbd>E</kbd> bật/tắt sửa · <kbd>0</kbd>–<kbd>5</kbd> đổi mức · <kbd>Q</kbd>/<kbd>W</kbd> xoay<br>
+          <kbd>M</kbd> gộp · <kbd>S</kbd> tách · <kbd>⌘Z</kbd> hoàn tác · <kbd>Esc</kbd> bỏ chọn
+        </div>
+      </div>
+      <div class="sec">
+        <h3>Xuất riêng tranh này</h3>
+        <div class="row2">
+          <button class="btn sm" data-exp="page:pdf">PDF trang tô</button>
+          <button class="btn sm" data-exp="key:pdf">PDF đáp án</button>
+          <button class="btn sm" data-exp="page:svg">SVG (Inkscape)</button>
+          <button class="btn sm" data-exp="key:svg">SVG đáp án</button>
+        </div>
+        <p class="hint">SVG chia sẵn lớp: outlines, guides, fills, details để chỉnh trong Inkscape.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 2. RUOT SACH ============================ -->
+<section class="view" id="v-book" hidden>
+  <div class="panel left">
+    <div class="sec">
+      <h3>Thông tin sách</h3>
+      <div class="field"><label for="b-title">Tên sách</label><input type="text" id="b-title" data-bind="title" placeholder="Geometric Wild Animals"></div>
+      <div class="field"><label for="b-sub">Phụ đề</label><input type="text" id="b-sub" data-bind="subtitle" placeholder="A hatching coloring book for adults"></div>
+      <div class="row2">
+        <div class="field"><label for="b-author">Tác giả</label><input type="text" id="b-author" data-bind="author"></div>
+        <div class="field"><label for="b-year">Năm</label><input type="number" id="b-year" data-bind="year" data-num></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="b-pub">Nhà xuất bản</label><input type="text" id="b-pub" data-bind="publisher" placeholder="(tuỳ chọn)"></div>
+        <div class="field"><label for="b-isbn">ISBN</label><input type="text" id="b-isbn" data-bind="isbn" placeholder="(tuỳ chọn)"></div>
+      </div>
+      <p class="hint">Chữ trong sách bằng tiếng Anh. Sách tô màu dùng ISBN miễn phí của KDP thì để trống ô ISBN cũng được.</p>
+    </div>
+    <div class="sec">
+      <h3>Trang đầu sách</h3>
+      <label class="check"><input type="checkbox" data-bind="settings.title_page"><span>Trang tên sách</span></label>
+      <label class="check"><input type="checkbox" data-bind="settings.copyright_page"><span>Trang bản quyền</span></label>
+      <label class="check"><input type="checkbox" data-bind="settings.howto_page"><span>Hướng dẫn cách tô<small>Giải thích ký hiệu, mẹo chọn bút</small></span></label>
+      <label class="check"><input type="checkbox" data-bind="settings.warmup_page"><span>Trang tập tô khởi động</span></label>
+    </div>
+    <div class="sec">
+      <h3>Trang tranh</h3>
+      <label class="check"><input type="checkbox" data-bind="settings.blank_back"><span>Trang trắng sau mỗi tranh<small>In một mặt để mực không thấm sang tranh sau</small></span></label>
+      <label class="check"><input type="checkbox" data-bind="settings.page_numbers"><span>Đánh số trang</span></label>
+      <label class="check"><input type="checkbox" data-bind="settings.include_keys"><span>Đáp án cuối sách</span></label>
+      <div class="field" id="kppField"><span class="lbl">Số đáp án mỗi trang</span>
+        <div class="seg" data-bind-seg="settings.keys_per_page"><button data-val="1">1</button><button data-val="2">2</button><button data-val="4">4</button></div></div>
+      <label class="check"><input type="checkbox" data-bind="settings.pad_to_min"><span>Bù trang trắng cho đủ 24 trang<small>Mức tối thiểu của KDP</small></span></label>
+    </div>
+    <div class="sec">
+      <h3>Khổ in và lề</h3>
+      <label class="check"><input type="checkbox" data-bind="settings.bleed"><span>Có bleed (trang 8.625 × 11.25 in)<small>Bắt buộc nếu dùng khung đen tràn lề</small></span></label>
+      <div class="field"><label>Khoảng trắng quanh tranh <output data-out="settings.padding_in" data-fmt="in"></output></label>
+        <input type="range" data-bind="settings.padding_in" data-num min="0" max="1" step="0.05"></div>
+      <div class="field"><label>Nới thêm lề KDP <output data-out="settings.extra_margin_in" data-fmt="in"></output></label>
+        <input type="range" data-bind="settings.extra_margin_in" data-num min="0" max="0.5" step="0.025"></div>
+    </div>
+    <div class="sec">
+      <h3>Ký hiệu và nét</h3>
+      <div class="field"><label>Độ đậm ký hiệu <output data-out="style.guide_gray" data-fmt="ink"></output></label>
+        <input type="range" data-bind="style.guide_gray" data-num min="0.3" max="0.8" step="0.01">
+        <p class="hint">Khoảng 35–50% mực là vừa: nhìn thấy rõ nhưng bị nét bút che đi. Nên đặt bản in thử để kiểm tra.</p></div>
+      <div class="field"><label>Độ dài ký hiệu <output data-out="style.guide_len" data-fmt="pt"></output></label>
+        <input type="range" data-bind="style.guide_len" data-num min="6" max="30" step="1"></div>
+      <details class="adv"><summary>Độ dày nét, khoảng cách nét</summary>
+        <div class="field"><label>Viền mảng <output data-out="style.outline_w" data-fmt="pt"></output></label><input type="range" data-bind="style.outline_w" data-num min="0.3" max="1.5" step="0.05"></div>
+        <div class="field"><label>Viền ngoài con vật <output data-out="style.silhouette_w" data-fmt="pt"></output></label><input type="range" data-bind="style.silhouette_w" data-num min="0.5" max="3" step="0.1"></div>
+        <div class="field"><label>Thưa <output data-out="style.sp1" data-fmt="pt"></output></label><input type="range" data-bind="style.sp1" data-num min="3" max="12" step="0.1"></div>
+        <div class="field"><label>Vừa <output data-out="style.sp2" data-fmt="pt"></output></label><input type="range" data-bind="style.sp2" data-num min="2" max="9" step="0.1"></div>
+        <div class="field"><label>Dày <output data-out="style.sp3" data-fmt="pt"></output></label><input type="range" data-bind="style.sp3" data-num min="1.2" max="6" step="0.1"></div>
+        <div class="field"><label>Gạch chéo (mỗi lớp) <output data-out="style.sp4" data-fmt="pt"></output></label><input type="range" data-bind="style.sp4" data-num min="1.5" max="8" step="0.1"></div>
+        <p class="hint">Khoảng cách nét quyết định độ dày ký hiệu và nét trong đáp án.</p>
+      </details>
+    </div>
+  </div>
+  <div class="pages">
+    <div class="pages-head">
+      <h2>Ruột sách</h2><span class="meta" id="bookMeta"></span>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="exportBook">Xuất ruột sách PDF</button>
+    </div>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:24px;align-items:start">
+      <div class="spreads" id="spreads"></div>
+      <div class="panel" style="border-radius:12px">
+        <div class="sec"><h3>Kiểm tra trước khi nộp KDP</h3><ul class="checks" id="checks"></ul></div>
+        <div class="sec"><dl class="kv" id="bookKv"></dl></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 3. BIA ============================ -->
+<section class="view" id="v-cover" hidden>
+  <div class="panel left">
+    <div class="sec">
+      <h3>Bìa trước</h3>
+      <div class="field"><label for="c-front">Tranh trên bìa</label><select id="c-front"></select></div>
+      <div class="field"><span class="lbl">Tranh hiển thị dạng</span>
+        <div class="seg" data-bind-seg="cover.front_mode"><button data-val="key">Đã tô xong</button><button data-val="page">Có ký hiệu</button></div></div>
+      <div class="field"><span class="lbl">Nền</span>
+        <div class="seg" data-bind-seg="cover.theme"><button data-val="light">Trắng</button><button data-val="dark">Đen</button></div></div>
+      <p class="hint">Tên sách, phụ đề, tác giả lấy từ bước 2.</p>
+    </div>
+    <div class="sec">
+      <h3>Bìa sau</h3>
+      <div class="field"><label for="c-back">Đoạn giới thiệu</label><textarea id="c-back" data-bind="back_text" rows="6" placeholder="Relax and unwind with 30 geometric animals..."></textarea></div>
+      <p class="hint">KDP tự in mã vạch vào ô 2 × 1.2 in ở góc dưới phải. Tool để trống vùng đó.</p>
+    </div>
+    <div class="sec">
+      <h3>Giấy</h3>
+      <div class="seg" data-bind-seg="cover.paper"><button data-val="white">Trắng</button><button data-val="cream">Kem</button></div>
+      <p class="hint">Sách tô màu nên dùng giấy trắng. Độ dày gáy tính theo số trang ruột sách.</p>
+    </div>
+    <div class="sec"><dl class="kv" id="coverKv"></dl></div>
+    <div class="sec"><button class="btn primary block" id="exportCover">Xuất bìa PDF</button>
+      <p class="hint">Đối chiếu kích thước với công cụ Cover Calculator của KDP trước khi nộp.</p></div>
+  </div>
+  <div class="cover-stage">
+    <div class="legend" style="padding:0">
+      <span><i style="color:#e0484d"></i>Đường cắt</span><span><i style="color:#1f8fc4"></i>Vùng an toàn chữ</span>
+      <span><i style="color:#7a5cc7"></i>Gáy</span><span><i style="color:#e6a23a"></i>Ô mã vạch</span>
+      <span>Bìa sau ở bên trái, bìa trước ở bên phải.</span>
+    </div>
+    <div class="paper" id="coverPaper"></div>
+  </div>
+</section>
+
+<dialog id="pageDlg">
+  <div class="dh"><b id="pageDlgTitle"></b>
+    <span style="display:flex;gap:8px;align-items:center"><label class="check" style="margin:0"><input type="checkbox" id="dlgGuides" checked> Hiện lề in</label>
+    <button class="btn sm" id="dlgPrev">‹</button><button class="btn sm" id="dlgNext">›</button><button class="btn sm" id="dlgClose">Đóng</button></span></div>
+  <div class="db"><div class="paper" id="pageDlgBody"></div></div>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const ENGINE_DEFAULTS = {facets:260, merge:0.5, lineart:0.08, accents:true, grabcut:false, white:0.14, black:0.035, min_angle_gap:30, seed:7};
+const STYLE_DEFAULTS = {guide_gray:0.58, guide_len:15, outline_w:0.6, silhouette_w:1.3, sp1:6.5, sp2:4.2, sp3:2.7, sp4:3.6};
+const LEVELS = [["Trắng",0],["Thưa",1],["Vừa",2],["Dày",3],["Chéo",4],["Đen",5]];
+const fmt = {
+  pct: v => Math.round(v*100) + "%", deg: v => v + "°", pt: v => (+v).toFixed(1) + " pt",
+  in: v => (+v).toFixed(3).replace(/0+$/,"").replace(/\.$/,"") + " in",
+  ink: v => Math.round((1-v)*100) + "% mực", lineart: v => +v === 0 ? "tắt" : (+v).toFixed(2),
+};
+const S = { proj:null, cur:-1, view:"page", tab:"designs", edit:false, sel:null, merging:false, last:null, plan:null };
+let reqNo = 0;
+
+// ------------------------------- tien ich -------------------------------
+function toast(msg, ms=2800){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"), ms); }
+async function api(url, body){
+  const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const d = await r.json().catch(()=>({error:"Máy chủ trả về lỗi."}));
+  if (!r.ok) throw new Error(d.error || "Có lỗi xảy ra.");
+  return d;
+}
+async function download(url, body, fallback){
+  const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  if (!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.error || "Xuất file thất bại."); }
+  const blob = await r.blob();
+  const name = ((r.headers.get("Content-Disposition")||"").match(/filename="?([^"]+)"?/)||[])[1] || fallback;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  return {r, name};
+}
+const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(()=>fn(...a), ms); }; };
+const getPath = (o, p) => p.split(".").reduce((x,k)=>x?.[k], o);
+const setPath = (o, p, v) => { const ks = p.split("."); const last = ks.pop(); ks.reduce((x,k)=>x[k] ??= {}, o)[last] = v; };
+const cur = () => S.proj?.designs[S.cur];
+const uid = () => Math.random().toString(36).slice(2, 10);
+function lite(){   // du an khong kem anh thu nho, gui len may chu cho nhe
+  return {...S.proj, designs: S.proj.designs.map(({thumb, ...d}) => d)};
+}
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// ------------------------------- luu du an -------------------------------
+const saveNow = async () => {
+  try{ const d = await api("/api/project", S.proj); $("#saveState").textContent = "Đã lưu lúc " + d.saved_at; }
+  catch(e){ $("#saveState").textContent = "Chưa lưu được: " + e.message; }
+};
+const saveSoon = debounce(saveNow, 700);
+function changed(){ $("#saveState").textContent = "Đang lưu…"; saveSoon(); }
+
+// ------------------------------- buoc -------------------------------
+function showTab(t){
+  S.tab = t;
+  $$("nav.steps button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === t));
+  ["designs","book","cover"].forEach(k => $("#v-"+k).hidden = k !== t);
+  if (t === "book") refreshBook();
+  if (t === "cover") refreshCover();
+  if (t === "designs") renderDesign();
+}
+$$("nav.steps button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+
+// ======================================================================
+// 1. TRANH
+// ======================================================================
+function renderList(){
+  const L = $("#list");
+  if (!S.proj.designs.length){ L.innerHTML = `<div class="drop-hint">Kéo thả ảnh vào khung giữa, hoặc bấm “+ Thêm ảnh”.</div>`; }
+  else L.innerHTML = S.proj.designs.map((d,i) => `
+    <div class="item ${i===S.cur?"sel":""}" data-i="${i}" tabindex="0">
+      <div class="th">${d.thumb ? `<img src="${d.thumb}" alt="">` : `<span class="mt">…</span>`}</div>
+      <div style="min-width:0"><div class="nm">${i+1}. ${esc(d.name || "Tranh")}</div>
+        <div class="mt">${d.edits?.length ? d.edits.length + " sửa tay" : "&nbsp;"}${d.frame ? " · khung đen" : ""}</div></div>
+      <div class="ops">
+        <button data-act="up" title="Đưa lên trước">↑</button><button data-act="down" title="Đưa ra sau">↓</button>
+        <button data-act="dup" title="Nhân bản để thử phương án khác">⧉</button><button data-act="del" title="Xoá khỏi sách">✕</button>
+      </div>
+    </div>`).join("");
+  const has = S.cur >= 0 && cur();
+  $("#noDesign").hidden = !!has; $("#dControls").hidden = !has;
+  $("#empty").hidden = !!has;
+}
+$("#list").addEventListener("click", e => {
+  const it = e.target.closest(".item"); if (!it) return;
+  const i = +it.dataset.i, act = e.target.dataset.act, D = S.proj.designs;
+  if (act === "del"){
+    if (!confirm(`Xoá tranh “${D[i].name}” khỏi sách?`)) return;
+    D.splice(i,1); if (S.cur >= D.length) S.cur = D.length-1; else if (S.cur > i) S.cur--;
+  } else if (act === "up" && i > 0){ [D[i-1],D[i]] = [D[i],D[i-1]]; S.cur = i-1; }
+  else if (act === "down" && i < D.length-1){ [D[i+1],D[i]] = [D[i],D[i+1]]; S.cur = i+1; }
+  else if (act === "dup"){ D.splice(i+1, 0, {...structuredClone(D[i]), uid:uid(), name:D[i].name + " (2)"}); S.cur = i+1; }
+  else if (!act){ if (S.cur === i) return; S.cur = i; }
+  else return;
+  S.sel = null; S.merging = false;
+  changed(); renderList(); loadControls(); renderDesign();
+});
+$("#list").addEventListener("keydown", e => { if (e.key === "Enter") e.target.closest(".item")?.click(); });
+
+// ---- tai anh ----
+async function uploadFiles(files){
+  const list = [...files].filter(f => /\.(png|jpe?g|webp)$/i.test(f.name));
+  if (!list.length){ toast("Chỉ nhận ảnh PNG, JPG hoặc WEBP."); return; }
+  for (const f of list){
+    const fd = new FormData(); fd.append("image", f);
+    toast(`Đang tải ${f.name}…`);
+    const r = await fetch("/api/upload", {method:"POST", body:fd}); const d = await r.json();
+    if (!r.ok){ toast(d.error || "Tải ảnh thất bại."); continue; }
+    S.proj.designs.push({uid:uid(), image_id:d.image_id, name:f.name.replace(/\.[^.]+$/,""), engine:{...ENGINE_DEFAULTS}, edits:[], frame:false, thumb:null});
+    S.cur = S.proj.designs.length - 1;
+  }
+  changed(); renderList(); loadControls(); renderDesign();
+  toast(list.length > 1 ? `Đã thêm ${list.length} tranh vào sách.` : "Đã thêm tranh vào sách.");
+}
+$("#file").addEventListener("change", e => { uploadFiles(e.target.files); e.target.value = ""; });
+let dragN = 0;
+window.addEventListener("dragenter", e => { if (e.dataTransfer?.types.includes("Files")){ dragN++; document.body.classList.add("dragging"); } });
+window.addEventListener("dragleave", () => { if (--dragN <= 0){ dragN = 0; document.body.classList.remove("dragging"); } });
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", e => { e.preventDefault(); dragN = 0; document.body.classList.remove("dragging");
+  if (e.dataTransfer.files.length){ if (S.tab !== "designs") showTab("designs"); uploadFiles(e.dataTransfer.files); } });
+
+// ---- dieu khien tranh ----
+function syncOutputs(){
+  $$("output[data-for]").forEach(o => { const el = document.getElementById(o.dataset.for); o.textContent = (fmt[o.dataset.fmt] || (v=>v))(el.value); });
+  const f = +$("#facets").value;
+  $$("#presetSeg button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.p === f));
+}
+function loadControls(){
+  const d = cur(); if (!d) return;
+  const e = {...ENGINE_DEFAULTS, ...d.engine};
+  $$("[data-eng]").forEach(el => el.type === "checkbox" ? el.checked = !!e[el.id] : el.value = e[el.id]);
+  $("#frame").checked = !!d.frame; $("#dName").value = d.name || "";
+  syncOutputs(); updateEditInfo();
+}
+function confirmEngineChange(){
+  const d = cur();
+  if (!d.edits?.length) return true;
+  if (!confirm(`Đổi thông số này sẽ chia lại mảng và xoá ${d.edits.length} chỉnh sửa tay của tranh. Tiếp tục?`)) return false;
+  d.edits = []; S.sel = null; return true;
+}
+function setEngine(k, v, el){
+  const d = cur(); if (!d) return;
+  if (d.engine[k] === v) return;
+  if (!confirmEngineChange()){ loadControls(); return; }
+  d.engine[k] = v; syncOutputs(); changed(); renderList(); renderDesignSoon();
+}
+$$("[data-eng]").forEach(el => {
+  if (el.type === "checkbox") el.addEventListener("change", () => setEngine(el.id, el.checked, el));
+  else { el.addEventListener("input", syncOutputs); el.addEventListener("change", () => setEngine(el.id, parseFloat(el.value), el)); }
+});
+$("#presetSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; $("#facets").value = b.dataset.p; setEngine("facets", +b.dataset.p); });
+$("#shuffle").addEventListener("click", () => { const v = 1 + Math.floor(Math.random()*999); $("#seed").value = v; setEngine("seed", v); });
+$("#frame").addEventListener("change", e => {
+  cur().frame = e.target.checked; changed(); renderList(); renderDesign();
+  if (e.target.checked && !S.proj.settings.bleed) toast("Khung đen tràn lề cần bật bleed ở bước 2. Khi chưa bật, khung chỉ nằm trong lề an toàn.", 4500);
+});
+$("#dName").addEventListener("input", e => { cur().name = e.target.value; changed(); renderList(); });
+
+// ---- ve xem truoc ----
+const renderDesignSoon = debounce(() => renderDesign(), 120);
+const thumbSoon = debounce(i => makeThumb(i), 900);
+async function renderDesign(){
+  const d = cur(); if (!d || S.tab !== "designs") { if (!d) $("#stage").querySelectorAll(".sheet").forEach(x=>x.remove()); return; }
+  const my = ++reqNo;
+  $("#stageWrap").classList.add("busy"); $("#status").textContent = "Đang tạo…";
+  const views = S.view === "both" ? ["page","key"] : [S.view];
+  try{
+    const r = await api("/api/render", {project: lite(), item: d, index: S.cur, interactive: true, views, show_guides: $("#showGuides").checked});
+    if (my !== reqNo) return;
+    S.last = r; drawStage();
+    const lv = r.stats.levels;
+    $("#status").textContent = `${r.stats.facets} mảng · ${lv[0]} trắng · ${lv[1]} thưa · ${lv[2]} vừa · ${lv[3]} dày · ${lv[4]} chéo · ${lv[5]} đen`;
+    if (r.stats.edits_skipped) toast(`${r.stats.edits_skipped} chỉnh sửa không áp dụng được (mảng không còn hoặc không kề nhau).`);
+    thumbSoon(S.cur);
+  }catch(err){ if (my === reqNo){ $("#status").textContent = ""; toast(err.message); } }
+  finally{ if (my === reqNo) $("#stageWrap").classList.remove("busy"); }
+}
+function drawStage(){
+  const r = S.last; if (!r) return;
+  $("#legend").hidden = !$("#showGuides").checked;
+  const w = +$("#zoom").value;
+  const parts = [];
+  if (S.view !== "key") parts.push(["Trang tô", r.page_svg]);
+  if (S.view !== "page") parts.push(["Đáp án (khi tô xong)", r.key_svg]);
+  $("#stage").querySelectorAll(".sheet").forEach(x=>x.remove());
+  $("#stage").insertAdjacentHTML("beforeend", parts.filter(p=>p[1]).map(([c,svg]) =>
+    `<figure class="sheet" style="width:${S.view==="both"?Math.round(w*0.75):w}px"><figcaption>${c}</figcaption><div class="paper">${svg}</div></figure>`).join(""));
+  $("#stage").classList.toggle("editing", S.edit);
+  markSel();
+}
+$("#zoom").addEventListener("input", drawStage);
+$("#showGuides").addEventListener("change", renderDesign);
+$("#viewSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  $$("#viewSeg button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  S.view = b.dataset.v; renderDesign();
+});
+async function makeThumb(i){
+  const d = S.proj.designs[i]; if (!d) return;
+  try{
+    const r = await api("/api/render", {project: lite(), item: d, index: i, views:["page"], show_guides:false});
+    const url = URL.createObjectURL(new Blob([r.page_svg], {type:"image/svg+xml"}));
+    const img = new Image(); await new Promise((ok,bad) => { img.onload = ok; img.onerror = bad; img.src = url; });
+    const c = document.createElement("canvas"); c.width = 132; c.height = Math.round(132 * img.height / img.width);
+    const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(url);
+    d.thumb = c.toDataURL("image/png"); renderList(); changed();
+  }catch(e){}
+}
+
+// ---- sua mang ----
+function levelIcon(lv){
+  const box = `<rect x="3" y="3" width="18" height="18" fill="${lv===5?"#000":"#fff"}" stroke="#000" stroke-width="1.2"/>`;
+  if (lv === 0 || lv === 5) return `<svg viewBox="0 0 24 24">${box}</svg>`;
+  const sp = {1:6,2:4,3:2.6,4:3.5}[lv];
+  let l = ""; for (let k=-24; k<=24; k+=sp) l += `M${3+k} 21L${21+k} 3`;
+  if (lv === 4) for (let k=-24; k<=24; k+=sp) l += `M${3+k} 3L${21+k} 21`;
+  return `<svg viewBox="0 0 24 24"><clipPath id="c${lv}"><rect x="3" y="3" width="18" height="18"/></clipPath>${box}<path d="${l}" stroke="#000" stroke-width=".8" clip-path="url(#c${lv})"/></svg>`;
+}
+$("#lvBtns").innerHTML = LEVELS.map(([n,lv]) => `<button class="lv" data-lv="${lv}" title="${n} (phím ${lv})">${levelIcon(lv)}${n}<kbd>${lv}</kbd></button>`).join("");
+
+function setEdit(on){
+  S.edit = on; S.merging = false;
+  if (!on) S.sel = null;
+  $("#editBtn").classList.toggle("on", on);
+  $("#editbar").hidden = !on || !cur();
+  $("#stage").classList.toggle("editing", on);
+  if (on && S.view === "key"){ $$("#viewSeg button")[0].click(); }
+  markSel();
+}
+$("#editBtn").addEventListener("click", () => setEdit(!S.edit));
+
+function selInfo(){
+  if (!S.sel) return null;
+  const p = $(`#stage .hit[data-id="${S.sel}"]`);
+  return p ? {lv:+p.dataset.level, ang:+p.dataset.angle} : null;
+}
+function markSel(){
+  $$("#stage .hit.sel").forEach(p => p.classList.remove("sel"));
+  if (S.sel) $$(`#stage .hit[data-id="${S.sel}"]`).forEach(p => p.classList.add("sel"));
+  const info = selInfo();
+  $$("#lvBtns .lv").forEach(b => b.setAttribute("aria-pressed", info ? +b.dataset.lv === info.lv : false));
+  $("#angOut").textContent = info && info.lv > 0 && info.lv < 5 ? Math.round(info.ang) + "°" : "–";
+  ["#rotL","#rotR","#mergeBtn","#splitBtn"].forEach(s => $(s).disabled = !info);
+  $$("#lvBtns .lv").forEach(b => b.disabled = !info);
+  $("#mergeBtn").classList.toggle("on", S.merging);
+  $("#undoBtn").disabled = !cur()?.edits?.length;
+  $("#editMsg").textContent = S.merging ? "Bấm vào mảng kề bên để gộp. Esc để huỷ."
+    : info ? "Chọn mức tô, xoay hướng, hoặc gộp/tách." : "Bấm vào một mảng để chọn.";
+  updateEditInfo();
+}
+function updateEditInfo(){
+  const n = cur()?.edits?.length || 0;
+  $("#editCount").textContent = n ? `${n} chỉnh sửa tay trên tranh này.` : "Chưa có chỉnh sửa.";
+  $("#clearEdits").disabled = !n;
+}
+function pushEdit(op){
+  const d = cur(); d.edits = [...(d.edits||[]), op];
+  changed(); renderList(); renderDesign();
+}
+$("#stage").addEventListener("click", e => {
+  const p = e.target.closest(".hit"); if (!S.edit) return;
+  if (!p){ return; }
+  const id = p.dataset.id;
+  if (S.merging && S.sel && id !== S.sel){
+    S.merging = false; pushEdit({op:"merge", a:S.sel, b:id}); return;
+  }
+  S.merging = false; S.sel = id; markSel();
+});
+$("#lvBtns").addEventListener("click", e => { const b = e.target.closest(".lv"); if (b && S.sel) setLevel(+b.dataset.lv); });
+function setLevel(v){ const i = selInfo(); if (i && i.lv !== v) pushEdit({op:"level", id:S.sel, v}); }
+function rotate(dl){ const i = selInfo(); if (i) pushEdit({op:"angle", id:S.sel, v:((i.ang + dl) % 180 + 180) % 180}); }
+function split(){ if (S.sel){ const id = S.sel; S.sel = id + "a"; pushEdit({op:"split", id}); } }
+function undo(){ const d = cur(); if (!d?.edits?.length) return; d.edits = d.edits.slice(0,-1); changed(); renderList(); renderDesign(); }
+$("#rotL").addEventListener("click", () => rotate(-15));
+$("#rotR").addEventListener("click", () => rotate(15));
+$("#mergeBtn").addEventListener("click", () => { if (S.sel){ S.merging = !S.merging; markSel(); } });
+$("#splitBtn").addEventListener("click", split);
+$("#undoBtn").addEventListener("click", undo);
+$("#clearEdits").addEventListener("click", () => { if (confirm("Xoá mọi chỉnh sửa tay của tranh này?")){ cur().edits = []; S.sel = null; changed(); renderList(); renderDesign(); } });
+document.addEventListener("keydown", e => {
+  if (S.tab !== "designs" || e.target.matches("input[type=text],input[type=number],textarea,select")) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z"){ e.preventDefault(); undo(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "e"){ if (cur()) setEdit(!S.edit); return; }
+  if (!S.edit) return;
+  if (k === "escape"){ S.merging ? (S.merging = false) : (S.sel = null); markSel(); }
+  else if (/^[0-5]$/.test(k)) setLevel(+k);
+  else if (k === "q") rotate(-15);
+  else if (k === "w") rotate(15);
+  else if (k === "m" && S.sel){ S.merging = !S.merging; markSel(); }
+  else if (k === "s") split();
+});
+
+// ---- xuat rieng ----
+$$("[data-exp]").forEach(b => b.addEventListener("click", async () => {
+  const [mode, format] = b.dataset.exp.split(":");
+  b.disabled = true;
+  try{ const {name} = await download("/api/export/design", {project: lite(), item: cur(), index: S.cur, mode, format}, `design.${format}`); toast("Đã tải " + name); }
+  catch(e){ toast(e.message); }
+  b.disabled = false;
+}));
+
+// ======================================================================
+// 2. RUOT SACH
+// ======================================================================
+const KIND = {title:"Tên sách", copyright:"Bản quyền", howto:"Hướng dẫn", warmup:"Khởi động", design:"Tranh", keys:"Đáp án", blank:"Trắng"};
+function bindForm(){
+  $$("[data-bind]").forEach(el => {
+    const p = el.dataset.bind, v = getPath(S.proj, p);
+    if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
+  });
+  $$("[data-bind-seg]").forEach(seg => { const v = String(getPath(S.proj, seg.dataset.bindSeg));
+    seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.val === v)); });
+  syncBound();
+}
+function syncBound(){
+  $$("output[data-out]").forEach(o => o.textContent = (fmt[o.dataset.fmt] || (v=>v))(getPath(S.proj, o.dataset.out)));
+  $("#kppField").hidden = !S.proj.settings.include_keys;
+}
+function onBound(){ syncBound(); changed(); if (S.tab === "book") refreshBookSoon(); if (S.tab === "cover") refreshCoverSoon(); }
+$$("[data-bind]").forEach(el => {
+  const ev = el.type === "checkbox" || el.type === "range" ? "change" : "input";
+  if (el.type === "range") el.addEventListener("input", () => { setPath(S.proj, el.dataset.bind, parseFloat(el.value)); syncBound(); });
+  el.addEventListener(ev, () => {
+    const v = el.type === "checkbox" ? el.checked : el.dataset.num !== undefined ? parseFloat(el.value) : el.value;
+    setPath(S.proj, el.dataset.bind, v); onBound();
+  });
+});
+$$("[data-bind-seg]").forEach(seg => seg.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const old = getPath(S.proj, seg.dataset.bindSeg);
+  setPath(S.proj, seg.dataset.bindSeg, typeof old === "number" ? +b.dataset.val : b.dataset.val);
+  seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); onBound();
+}));
+
+const pageCache = new Map();
+let bookGen = 0;
+const refreshBookSoon = debounce(() => refreshBook(), 400);
+async function refreshBook(){
+  const gen = ++bookGen;
+  let plan;
+  try{ plan = await api("/api/book/plan", lite()); }catch(e){ toast(e.message); return; }
+  if (gen !== bookGen) return;
+  S.plan = plan;
+  const P = plan.pages, sp = [[null, P[0]]];
+  for (let i = 1; i < P.length; i += 2) sp.push([P[i], P[i+1] || null]);
+  const pgHtml = p => !p ? `<div class="pg ghost"></div>` :
+    `<div class="pg" data-n="${p.n}" title="Trang ${p.n}: ${KIND[p.kind]}">${p.kind !== "blank" ? `<span class="tag">${KIND[p.kind]}${p.kind==="design" ? " " + (p.i+1) : ""}</span>` : ""}</div>`;
+  $("#spreads").innerHTML = sp.map(([l, r]) => `<div class="spread"><div class="pp">${pgHtml(l)}${pgHtml(r)}</div>
+    <div class="cap"><span>${l ? l.n : ""}</span><span>${r ? r.n : ""}</span></div></div>`).join("");
+  $("#bookMeta").textContent = `${S.proj.designs.length} tranh · ${plan.total_pages} trang`;
+  bookChecks(plan);
+  // tai anh tung trang (2 trang mot luc)
+  const key = JSON.stringify({...lite(), cover:null, back_text:null});
+  const todo = P.filter(p => p.kind !== "blank");
+  const run = async () => {
+    while (todo.length){
+      if (gen !== bookGen) return;
+      const p = todo.shift(), ck = key + "|" + p.n + "|" + plan.total_pages;
+      let svg = pageCache.get(ck);
+      if (!svg){ try{ svg = (await api("/api/book/page", {project: lite(), n: p.n})).svg; pageCache.set(ck, svg); }catch(e){ svg = ""; } }
+      if (gen !== bookGen) return;
+      const el = $(`#spreads .pg[data-n="${p.n}"]`); if (el) el.insertAdjacentHTML("afterbegin", svg);
+    }
+  };
+  if (pageCache.size > 400) pageCache.clear();
+  await Promise.all([run(), run(), run()]);
+}
+function bookChecks(plan){
+  const st = S.proj.settings, sty = {...STYLE_DEFAULTS, ...S.proj.style}, out = [];
+  const n = S.proj.designs.length;
+  out.push(n ? ["", `${n} tranh trong sách`] : ["bad", "Sách chưa có tranh nào"]);
+  out.push(S.proj.title ? ["", "Đã có tên sách"] : ["warn", "Chưa nhập tên sách (in trên trang đầu và bìa)"]);
+  out.push(plan.total_pages >= 24 ? ["", `${plan.total_pages} trang, đủ tối thiểu 24 trang`] : ["bad", `Chỉ có ${plan.total_pages} trang, KDP cần ít nhất 24`]);
+  if (plan.total_pages > 590) out.push(["bad", "Quá số trang tối đa cho khổ 8.5 × 11 in đen trắng"]);
+  out.push(["", "Font Lato nhúng sẵn trong PDF"]);
+  const framed = S.proj.designs.filter(d => d.frame).length;
+  if (framed && !st.bleed) out.push(["warn", `${framed} tranh có khung đen nhưng chưa bật bleed nên khung không tràn mép`]);
+  if (!framed && st.bleed) out.push(["warn", "Đang bật bleed nhưng không trang nào tràn mép. Có thể tắt bleed."]);
+  if (sty.guide_gray > 0.7) out.push(["warn", "Ký hiệu khá nhạt, có thể in mờ. Nên in thử."]);
+  else if (sty.guide_gray < 0.45) out.push(["warn", "Ký hiệu khá đậm, có thể lộ qua nét tô."]);
+  else out.push(["", "Độ đậm ký hiệu trong khoảng an toàn"]);
+  const noThumbEdits = S.proj.designs.filter(d => (+d.engine?.lineart || 0) > 0.15).length;
+  if (noThumbEdits) out.push(["warn", `${noThumbEdits} tranh có nhiều nét chi tiết, dễ rối`]);
+  out.push(["warn", "Đặt một bản in thử (proof) trước khi phát hành"]);
+  $("#checks").innerHTML = out.map(([c,t]) => `<li class="${c}">${t}</li>`).join("");
+  $("#bookKv").innerHTML = [
+    ["Khổ trang PDF", plan.page_size_in.join(" × ") + " in"],
+    ["Khổ cắt", "8.5 × 11 in"],
+    ["Lề gáy", plan.gutter_in.toFixed(3) + " in"],
+    ["Lề ngoài/trên/dưới", plan.outside_in.toFixed(3) + " in"],
+    ["Tổng số trang", plan.total_pages],
+  ].map(([a,b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
+  $("#exportBook").disabled = !n;
+}
+$("#spreads").addEventListener("click", e => { const p = e.target.closest(".pg[data-n]"); if (p) openPage(+p.dataset.n); });
+let dlgN = 1;
+async function openPage(n){
+  dlgN = n; const p = S.plan.pages[n-1];
+  $("#pageDlgTitle").textContent = `Trang ${n} / ${S.plan.total_pages} · ${KIND[p.kind]}${p.kind==="design" ? " " + (p.i+1) + ": " + (S.proj.designs[p.i].name || "") : ""} · ${p.side === "right" ? "trang phải" : "trang trái"}`;
+  if (!$("#pageDlg").open) $("#pageDlg").showModal();
+  $("#pageDlgBody").innerHTML = "";
+  try{ $("#pageDlgBody").innerHTML = (await api("/api/book/page", {project: lite(), n, show_guides: $("#dlgGuides").checked})).svg; }catch(e){ toast(e.message); }
+}
+$("#dlgClose").addEventListener("click", () => $("#pageDlg").close());
+$("#dlgPrev").addEventListener("click", () => dlgN > 1 && openPage(dlgN-1));
+$("#dlgNext").addEventListener("click", () => dlgN < S.plan.total_pages && openPage(dlgN+1));
+$("#dlgGuides").addEventListener("change", () => openPage(dlgN));
+$("#pageDlg").addEventListener("keydown", e => { if (e.key === "ArrowLeft") $("#dlgPrev").click(); if (e.key === "ArrowRight") $("#dlgNext").click(); });
+
+$("#exportBook").addEventListener("click", async () => {
+  const b = $("#exportBook"); b.disabled = true; b.textContent = "Đang xuất…";
+  try{
+    const {r, name} = await download("/api/book", lite(), "interior.pdf");
+    const info = JSON.parse(r.headers.get("X-Book-Info") || "{}");
+    toast(`Đã xuất ${name}: ${info.total_pages} trang, ${info.page_size_in?.join(" × ")} in. Bản sao nằm trong data/exports.`, 5000);
+  }catch(e){ toast(e.message); }
+  b.disabled = false; b.textContent = "Xuất ruột sách PDF";
+});
+
+// ======================================================================
+// 3. BIA
+// ======================================================================
+const refreshCoverSoon = debounce(() => refreshCover(), 400);
+async function refreshCover(){
+  const sel = $("#c-front"), D = S.proj.designs;
+  sel.innerHTML = D.length ? D.map((d,i) => `<option value="${i}">${i+1}. ${esc(d.name)}</option>`).join("") : `<option value="-1">(chưa có tranh)</option>`;
+  if (S.proj.cover.front >= D.length) S.proj.cover.front = 0;
+  sel.value = D.length ? S.proj.cover.front : -1;
+  try{
+    const r = await api("/api/cover/preview", lite());
+    $("#coverPaper").innerHTML = r.svg;
+    $("#coverPaper").style.width = "min(100%, 1300px)";
+    $("#coverKv").innerHTML = [
+      ["Số trang ruột", r.page_count], ["Độ dày gáy", r.spine_in.toFixed(4) + " in"],
+      ["Khổ file bìa", r.size_in.map(x=>x.toFixed(3)).join(" × ") + " in"],
+      ["Chữ trên gáy", r.spine_text ? "Có" : "Không (cần trên 79 trang)"],
+    ].map(([a,b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
+  }catch(e){ toast(e.message); }
+}
+$("#c-front").addEventListener("change", e => { S.proj.cover.front = +e.target.value; onBound(); });
+$("#exportCover").addEventListener("click", async () => {
+  const b = $("#exportCover"); b.disabled = true;
+  try{ const {name} = await download("/api/cover", lite(), "cover.pdf"); toast("Đã xuất " + name, 4000); }catch(e){ toast(e.message); }
+  b.disabled = false;
+});
+
+// ------------------------------- khoi dong -------------------------------
+(async () => {
+  try{
+    S.proj = await (await fetch("/api/project")).json();
+    S.proj.style = {...STYLE_DEFAULTS, ...S.proj.style};
+    S.proj.designs.forEach(d => { d.uid ??= uid(); d.engine = {...ENGINE_DEFAULTS, ...d.engine}; d.edits ??= []; });
+    S.cur = S.proj.designs.length ? 0 : -1;
+    $("#saveState").textContent = S.proj.designs.length ? "Đã mở dự án đã lưu" : "Dự án mới · tự lưu khi thay đổi";
+  }catch(e){ toast("Không mở được dự án: " + e.message); return; }
+  bindForm(); renderList(); loadControls(); setEdit(false); renderDesign();
+  S.proj.designs.forEach((d,i) => { if (!d.thumb) makeThumb(i); });
+})();
+</script>
+</body>
+</html>
