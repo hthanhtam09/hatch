@@ -12,7 +12,9 @@ export type Edit =
   | { op: "level"; id: string; v: number }
   | { op: "angle"; id: string; v: number }
   | { op: "merge"; a: string; b: string }
-  | { op: "split"; id: string };
+  | { op: "split"; id: string }
+  | { op: "keep_add"; x: number; y: number; r: number }
+  | { op: "keep_del"; id: string };
 
 export type DesignItem = {
   uid: string; image_id: string; name: string; engine: Engine; edits: Edit[]; frame: boolean;
@@ -34,7 +36,7 @@ export type Project = {
 
 export type Stats = {
   facets: number; levels: Record<string, number>; image_px: [number, number];
-  edits?: number; edits_skipped?: number;
+  edits?: number; edits_skipped?: number; keeps?: number;
 };
 
 export type RenderResult = { page_svg?: string; key_svg?: string; stats: Stats; ms: number };

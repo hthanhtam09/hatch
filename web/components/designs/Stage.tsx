@@ -4,7 +4,7 @@ import { api, isAbort, lite } from "@/lib/api";
 import { useCurrent, useLiteKey, useStore } from "@/lib/store";
 import type { RenderResult } from "@/lib/types";
 import { Button, Legend, Seg, cx } from "../ui";
-import { EditBar, type EditActions } from "./EditBar";
+import { EditBar, type EditActions, type KeepState } from "./EditBar";
 import type { FacetInfo } from "./DesignsView";
 import { makeThumb } from "./thumb";
 
@@ -18,9 +18,20 @@ type Props = {
   view: View; setView: (v: View) => void; edit: boolean; setEdit: (on: boolean) => void;
   sel: string | null; merging: boolean; onPick: (id: string) => void;
   info: FacetInfo; onInfo: (i: FacetInfo) => void; actions: EditActions;
+  keep: KeepState; onKeep: (op: { add: [number, number, number] } | { del: string }) => void;
 };
 
-export function Stage({ view, setView, edit, setEdit, sel, merging, onPick, info, onInfo, actions }: Props) {
+/** Diem bam tren trang -> pixel anh, dua vao <g class="artmap"> do server ghi trong svg tuong tac. */
+function toImage(e: React.MouseEvent, svg: SVGSVGElement): [number, number] | null {
+  const map = svg.querySelector<SVGGElement>(".artmap");
+  const ctm = svg.getScreenCTM();
+  if (!map || !ctm) return null;
+  const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+  const s = +map.dataset.s!, ox = +map.dataset.ox!, oy = +map.dataset.oy!;
+  return [(p.x - ox) / s, (p.y - oy) / s];
+}
+
+export function Stage({ view, setView, edit, setEdit, sel, merging, onPick, info, onInfo, actions, keep, onKeep }: Props) {
   const item = useCurrent();
   const cur = useStore((s) => s.cur);
   const key = useLiteKey();
@@ -104,9 +115,23 @@ export function Stage({ view, setView, edit, setEdit, sel, merging, onPick, info
 
       <div
         ref={box}
-        className={cx("flex flex-1 items-start justify-center gap-7 overflow-auto px-7 pb-32 pt-6", edit && "editing", busy && "[&_.sheet]:opacity-60")}
+        className={cx("flex flex-1 items-start justify-center gap-7 overflow-auto px-7 pb-32 pt-6", edit && "editing",
+          edit && keep.on && "keeping", busy && "[&_.sheet]:opacity-60")}
         onClick={(e) => {
-          const hit = (e.target as Element).closest<SVGElement>(".hit");
+          const t = e.target as Element;
+          if (edit && keep.on) {
+            const kh = t.closest<SVGElement>(".keephit");
+            if (kh) { onKeep({ del: kh.dataset.keep! }); return; }
+            const svg = t.closest<SVGSVGElement>("svg");
+            const px = svg && res && toImage(e, svg);
+            if (px) {
+              const [w, h] = res!.stats.image_px;
+              if (px[0] >= 0 && px[1] >= 0 && px[0] < w && px[1] < h)
+                onKeep({ add: [Math.round(px[0]), Math.round(px[1]), Math.round(keep.frac * Math.max(w, h))] });
+            }
+            return;
+          }
+          const hit = t.closest<SVGElement>(".hit");
           if (hit) onPick(hit.dataset.id!);
         }}
       >
@@ -118,7 +143,7 @@ export function Stage({ view, setView, edit, setEdit, sel, merging, onPick, info
         ))}
       </div>
 
-      {edit && item && <EditBar info={info} merging={merging} canUndo={item.edits.length > 0} actions={actions} />}
+      {edit && item && <EditBar info={info} merging={merging} keep={keep} canUndo={item.edits.length > 0} actions={actions} />}
     </div>
   );
 }

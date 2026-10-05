@@ -6,6 +6,8 @@ Chinh sua luu thanh danh sach thao tac, ap dung lan luot len ban goc (ban goc na
   {"op": "angle", "id": "f12", "v": 45}
   {"op": "merge", "a": "f12", "b": "f40"}     # f40 nhap vao f12, giu muc + huong cua f12
   {"op": "split", "id": "f12"}                 # -> "f12a", "f12b"
+  {"op": "keep_add", "x": 330, "y": 452, "r": 40}   # giu nguyen vung tron (pixel anh) -> id "m0", "m1"...
+  {"op": "keep_del", "id": "e0"}               # bo vung giu nguyen (tu dong "e*" hoac tay "m*")
 Id chi on dinh khi tham so engine giu nguyen; doi tham so engine thi phai xoa chinh sua.
 """
 import math
@@ -16,6 +18,7 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import split, unary_union
 
 from .engine import Design
+from .keeps import circle, keep_art
 
 
 def _poly(p):
@@ -64,6 +67,8 @@ def apply_edits(design: Design, edits) -> Design:
     levels = list(design.levels)
     angles = list(design.angles)
     skipped = 0
+    keeps = list(design.keeps)
+    n_manual = 0
 
     def at(k):
         try:
@@ -102,6 +107,24 @@ def apply_edits(design: Design, edits) -> Design:
             polys[i:i + 1] = parts
             levels[i:i + 1] = [levels[i], levels[i]]
             angles[i:i + 1] = [angles[i], (angles[i] + 60) % 180]
+        elif op == "keep_add":
+            try:
+                x, y, r = float(e["x"]), float(e["y"]), float(e["r"])
+            except (KeyError, TypeError, ValueError):
+                skipped += 1
+                continue
+            kid = f"m{n_manual}"
+            n_manual += 1
+            if design.gray is None or r < 3 or not (0 <= x < design.width and 0 <= y < design.height):
+                skipped += 1
+                continue
+            keeps.append({"id": kid, **keep_art(design.gray, circle(x, y, r))})
+        elif op == "keep_del":
+            k = next((i for i, kp in enumerate(keeps) if kp["id"] == e.get("id")), -1)
+            if k < 0:
+                skipped += 1
+                continue
+            del keeps[k]
         else:
             skipped += 1
 
@@ -109,5 +132,6 @@ def apply_edits(design: Design, edits) -> Design:
     stats = dict(design.stats)
     stats.update(facets=len(polys), levels={str(k): int((lv == k).sum()) for k in range(6)},
                  edits=len(edits), edits_skipped=skipped)
+    stats["keeps"] = len(keeps)
     return Design(design.width, design.height, polys, levels, angles, design.silhouette,
-                  design.accents, design.lines, stats, ids)
+                  design.accents, design.lines, stats, ids, design.inks, keeps, design.gray)

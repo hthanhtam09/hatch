@@ -16,13 +16,15 @@ export function DesignsView() {
   const [sel, setSel] = useState<string | null>(null);
   const [merging, setMerging] = useState(false);
   const [info, setInfo] = useState<FacetInfo>(null);
+  const [keeping, setKeeping] = useState(false);
+  const [keepFrac, setKeepFrac] = useState(0.035);   // ban kinh vung giu nguyen, ti le canh dai cua anh
 
   // doi tranh -> bo chon
   const [selFor, setSelFor] = useState(cur);
-  if (selFor !== cur) { setSelFor(cur); setSel(null); setMerging(false); }
+  if (selFor !== cur) { setSelFor(cur); setSel(null); setMerging(false); setKeeping(false); }
 
   const setEdit = useCallback((on: boolean) => {
-    setEditRaw(on); setMerging(false);
+    setEditRaw(on); setMerging(false); setKeeping(false);
     if (!on) setSel(null);
     if (on) setView((v) => (v === "key" ? "page" : v));
   }, []);
@@ -36,7 +38,9 @@ export function DesignsView() {
     level: (v: number) => { if (sel && info && info.lv !== v) push({ op: "level", id: sel, v }); },
     rotate: (dl: number) => { if (sel && info) push({ op: "angle", id: sel, v: (((info.ang + dl) % 180) + 180) % 180 }); },
     split: () => { if (sel) { push({ op: "split", id: sel }); setSel(sel + "a"); } },
-    toggleMerge: () => { if (sel) setMerging((m) => !m); },
+    toggleMerge: () => { if (sel) { setKeeping(false); setMerging((m) => !m); } },
+    toggleKeep: () => { setMerging(false); setKeeping((k) => !k); },
+    keepSize: (d: number) => setKeepFrac((f) => Math.min(0.15, Math.max(0.01, +(f + d * 0.005).toFixed(3)))),
     undo: () => {
       const { cur, updateDesign } = useStore.getState();
       updateDesign(cur, (d) => { d.edits = d.edits.slice(0, -1); });
@@ -59,7 +63,10 @@ export function DesignsView() {
       const k = e.key.toLowerCase();
       if (k === "e") { if (item) setEdit(!edit); return; }
       if (!edit) return;
-      if (k === "escape") { if (merging) setMerging(false); else setSel(null); }
+      if (k === "escape") { if (keeping) setKeeping(false); else if (merging) setMerging(false); else setSel(null); }
+      else if (k === "k") actions.toggleKeep();
+      else if (k === "[" && keeping) actions.keepSize(-1);
+      else if (k === "]" && keeping) actions.keepSize(1);
       else if (/^[0-5]$/.test(k)) actions.level(+k);
       else if (k === "q") actions.rotate(-15);
       else if (k === "w") actions.rotate(15);
@@ -76,6 +83,8 @@ export function DesignsView() {
       <Stage
         view={view} setView={setView} edit={edit} setEdit={setEdit} sel={sel} merging={merging}
         onPick={pick} onInfo={setInfo} info={info} actions={actions}
+        keep={{ on: keeping, frac: keepFrac }}
+        onKeep={(o) => push("add" in o ? { op: "keep_add", x: o.add[0], y: o.add[1], r: o.add[2] } : { op: "keep_del", id: o.del })}
       />
       <DesignPanel onEngineReset={() => setSel(null)} />
     </div>

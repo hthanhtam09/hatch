@@ -43,6 +43,30 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(d.stats["edits_skipped"], 0)
 
 
+class KeepTest(unittest.TestCase):
+    def test_keep_add_del(self):
+        n = len(DESIGN.keeps)
+        d = apply_edits(DESIGN, [{"op": "keep_add", "x": 200, "y": 150, "r": 25},
+                                 {"op": "keep_add", "x": -5, "y": 10, "r": 25},      # ngoai anh -> bo qua
+                                 {"op": "keep_del", "id": "m0"}, {"op": "keep_del", "id": "zz"}])
+        self.assertEqual(len(d.keeps), n)
+        self.assertEqual(d.stats["edits_skipped"], 2)
+        d = apply_edits(DESIGN, [{"op": "keep_add", "x": 200, "y": 150, "r": 25}])
+        kp = d.keeps[-1]
+        self.assertEqual(kp["id"], "m0")
+        self.assertTrue(kp["black"] or kp["dense"] or kp["sparse"])
+        self.assertEqual(len(DESIGN.keeps), n)                                     # ban goc khong bi doi
+
+    def test_keep_svg(self):
+        from hatch.layout import page_geometry
+        from hatch.render import StyleParams, render_svg
+        d = apply_edits(DESIGN, [{"op": "keep_add", "x": 200, "y": 150, "r": 25}])
+        svg = render_svg(d, page_geometry(True, "right", 100), "color", StyleParams(), interactive=True)
+        self.assertIn('id="keeps"', svg)
+        self.assertIn('data-keep="m0"', svg)
+        self.assertIn('class="artmap"', svg)
+
+
 class BookTest(unittest.TestCase):
     def proj(self, n=3, **settings):
         return normalize({"title": "T", "designs": [{"image_id": "x"}] * n, "settings": settings})

@@ -38,3 +38,9 @@ input[type="checkbox"] { accent-color: var(--color-ink); }
 .hits .hit.sel { fill: rgb(217 102 31 / .32); stroke: var(--color-accent); stroke-width: 1.6; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+.keephits .keephit { fill: transparent; stroke: none; pointer-events: none; }
+.editing .keephits .keephit { stroke: var(--color-accent); stroke-width: 1.2; stroke-dasharray: 3 2; }
+.keeping .keephits .keephit { pointer-events: all; cursor: pointer; }
+.keeping .keephits .keephit:hover { fill: rgb(217 102 31 / .25); }
+.keeping .hits .hit { pointer-events: none; }
+.keeping .sheet svg { cursor: crosshair; }

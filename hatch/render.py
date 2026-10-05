@@ -9,9 +9,11 @@ from dataclasses import dataclass, asdict
 
 import numpy as np
 from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.pdfgen.canvas import FILL_EVEN_ODD
 from shapely.geometry import LineString, MultiLineString, Polygon
 
 from . import fonts
+from .keeps import radial_hatch
 from .layout import Box, PageGeometry, PT
 
 
@@ -23,7 +25,7 @@ class StyleParams:
     silhouette_w: float = 1.3
     hatch_w: float = 0.45
     guide_w: float = 0.55
-    lineart_w: float = 0.7
+    lineart_w: float = 1.1         # net chi tiet (mat, vien hoa tiet) dam hon canh mang
     sp1: float = 6.5              # khoang cach net khi to xong (pt): thua
     sp2: float = 4.2              # vua
     sp3: float = 2.7              # day
@@ -65,6 +67,10 @@ class SvgBackend:
 
     def fill_poly(self, points, gray=0.0):
         self.parts.append(f'<polygon points="{self._pts(points)}" fill="{self._g(gray)}"/>')
+
+    def fill_rings(self, rings, gray=0.0):
+        d = "".join("M" + "L".join(f"{x:.2f} {y:.2f}" for x, y in r) + "Z" for r in rings)
+        self.parts.append(f'<path d="{d}" fill="{self._g(gray)}" fill-rule="evenodd"/>')
 
     def stroke_poly(self, points, width, gray=0.0):
         self.parts.append(f'<polygon points="{self._pts(points)}" fill="none" stroke="{self._g(gray)}" '
@@ -134,6 +140,16 @@ class PdfBackend:
     def fill_poly(self, points, gray=0.0):
         self.c.setFillGray(gray)
         self.c.drawPath(self._path(points, True), fill=1, stroke=0)
+
+    def fill_rings(self, rings, gray=0.0):
+        p = self.c.beginPath()
+        for r in rings:
+            p.moveTo(r[0][0], self.h - r[0][1])
+            for x, y in r[1:]:
+                p.lineTo(x, self.h - y)
+            p.close()
+        self.c.setFillGray(gray)
+        self.c.drawPath(p, fill=1, stroke=0, fillMode=FILL_EVEN_ODD)
 
     def stroke_poly(self, points, width, gray=0.0):
         self.c.setStrokeGray(gray)
@@ -279,6 +295,8 @@ def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive
     be.group("details")
     for A in design.accents:
         be.fill_poly(T(A), 0.0)
+    for rings in getattr(design, "inks", ()):
+        be.fill_rings([T(r) for r in rings], 0.0)
     for L in design.lines:
         be.polyline(T(L), style.lineart_w, 0.0)
     be.end_group()
@@ -289,11 +307,45 @@ def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive
         be.stroke_poly(T(S), style.silhouette_w, 0.0)
     be.end_group()
 
+    keeps = getattr(design, "keeps", ())
+    if keeps:
+        be.group("keeps")
+        s = min(box.w / design.width, box.h / design.height)
+        for kp in keeps:
+            draw_keep(be, kp, T, s, style)
+        be.end_group()
+
     if interactive:
+        s = min(box.w / design.width, box.h / design.height)
+        ox, oy = T([[0.0, 0.0]])[0]
+        # de giao dien doi diem bam (toa do trang) -> pixel anh khi them vung giu nguyen
+        be.raw(f'<g class="artmap" data-s="{s:.6f}" data-ox="{ox:.3f}" data-oy="{oy:.3f}"></g>')
+        be.raw('<g class="keephits">')
+        for kp in keeps:
+            be.raw(f'<polygon class="keephit" data-keep="{kp["id"]}" points="{SvgBackend._pts(T(kp["ring"]))}"/>')
+        be.raw("</g>")
         be.raw('<g class="hits">')
         for P, fid, lv, ang in zip(page_polys, design.ids, design.levels, design.angles):
             be.hit(P, fid, lv, ang)
         be.raw("</g>")
+
+
+KEEP_DENSE = 1.3     # khoang cach gach nan hoa (pt, do o mep vung): tong toi
+KEEP_SPARSE = 2.6    # tong sang hon
+
+
+def draw_keep(be, kp, T, s, style: StyleParams):
+    """Vung giu nguyen: phu trang (an mang/net ben duoi) roi ve lai tu anh goc bang trang den."""
+    ring = T(kp["ring"])
+    be.fill_poly(ring, 1.0)
+    for rings in kp["black"]:
+        be.fill_rings([T(r) for r in rings], 0.0)
+    c = T([kp["center"]])[0]
+    radius = float(np.max(np.hypot(*(ring - c).T)))
+    seg = []
+    for key, sp in (("dense", KEEP_DENSE), ("sparse", KEEP_SPARSE)):
+        seg += radial_hatch([[T(r) for r in rings] for rings in kp[key]], c, sp, radius)
+    be.lines(seg, style.hatch_w * 0.8, 0.0)
 
 
 # ----------------------------- 1 trang tranh hoan chinh -----------------------------

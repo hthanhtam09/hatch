@@ -4,30 +4,48 @@ import { api } from "@/lib/api";
 import { ENGINE_DEFAULTS } from "@/lib/defaults";
 import { uid, useStore } from "@/lib/store";
 
-/** Tai anh len Flask; moi anh thanh 1 tranh moi trong sach. */
+const POOL = 4;   // so anh tai len song song
+
+/** Tai nhieu anh len Flask song song; moi anh thanh 1 tranh moi, giu thu tu ten file, them mot lan. */
 export function useUpload() {
   return useCallback(async (files: FileList | File[]) => {
     const { update, setCur, notify } = useStore.getState();
-    const list = [...files].filter((f) => /\.(png|jpe?g|webp)$/i.test(f.name));
+    const all = [...files];
+    const list = all.filter((f) => /\.(png|jpe?g|webp)$/i.test(f.name))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     if (!list.length) return notify("Chỉ nhận ảnh PNG, JPG hoặc WEBP.");
-    let added = 0;
-    for (const f of list) {
-      notify(`Đang tải ${f.name}…`);
-      try {
-        const d = await api.upload(f);
-        update((p) => {
+    const done: ({ image_id: string } | null)[] = list.map(() => null);
+    const failed: string[] = [];
+    let next = 0, finished = 0;
+    const worker = async () => {
+      while (next < list.length) {
+        const i = next++;
+        try { done[i] = await api.upload(list[i]); }
+        catch (e) { failed.push(`${list[i].name}: ${(e as Error).message}`); }
+        notify(`Đang tải ảnh… ${++finished}/${list.length}`);
+      }
+    };
+    notify(`Đang tải ảnh… 0/${list.length}`);
+    await Promise.all(Array.from({ length: Math.min(POOL, list.length) }, worker));
+    const ok = list.flatMap((f, i) => (done[i] ? [{ f, id: done[i]!.image_id }] : []));
+    if (ok.length) {
+      const first = useStore.getState().proj!.designs.length;
+      update((p) => {
+        for (const { f, id } of ok) {
           p.designs.push({
-            uid: uid(), image_id: d.image_id, name: f.name.replace(/\.[^.]+$/, ""),
+            uid: uid(), image_id: id, name: f.name.replace(/\.[^.]+$/, ""),
             engine: { ...ENGINE_DEFAULTS }, edits: [], frame: false, thumb: null,
           });
-        });
-        setCur(useStore.getState().proj!.designs.length - 1);
-        added++;
-      } catch (e) {
-        notify((e as Error).message);
-      }
+        }
+      });
+      setCur(first);
     }
-    if (added) notify(added > 1 ? `Đã thêm ${added} tranh vào sách.` : "Đã thêm tranh vào sách.");
+    const skipped = all.length - list.length;
+    notify([
+      ok.length ? `Đã thêm ${ok.length} tranh vào sách.` : "Không thêm được tranh nào.",
+      failed.length && `${failed.length} ảnh lỗi (${failed[0]}${failed.length > 1 ? "…" : ""}).`,
+      skipped && `Bỏ qua ${skipped} tệp không phải ảnh.`,
+    ].filter(Boolean).join(" "));
   }, []);
 }
 

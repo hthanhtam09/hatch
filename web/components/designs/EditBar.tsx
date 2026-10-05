@@ -5,7 +5,10 @@ import type { FacetInfo } from "./DesignsView";
 
 export type EditActions = {
   level: (v: number) => void; rotate: (dl: number) => void; split: () => void; toggleMerge: () => void; undo: () => void;
+  toggleKeep: () => void; keepSize: (d: number) => void;
 };
+
+export type KeepState = { on: boolean; frac: number };
 
 export function LevelIcon({ lv }: { lv: number }) {
   const sp = ({ 1: 6, 2: 4, 3: 2.6, 4: 3.5 } as Record<number, number>)[lv];
@@ -23,8 +26,11 @@ export function LevelIcon({ lv }: { lv: number }) {
   );
 }
 
-export function EditBar({ info, merging, canUndo, actions }: { info: FacetInfo; merging: boolean; canUndo: boolean; actions: EditActions }) {
-  const msg = merging ? "Bấm vào mảng kề bên để gộp. Esc để huỷ."
+export function EditBar({ info, merging, keep, canUndo, actions }: {
+  info: FacetInfo; merging: boolean; keep: KeepState; canUndo: boolean; actions: EditActions;
+}) {
+  const msg = keep.on ? "Bấm vào mắt (hoặc chỗ cần giữ nguyên) để thêm vùng. Bấm vào vùng nét đứt để bỏ. Esc để thoát."
+    : merging ? "Bấm vào mảng kề bên để gộp. Esc để huỷ."
     : info ? "Chọn mức tô, xoay hướng, hoặc gộp/tách." : "Bấm vào một mảng để chọn.";
   const hatched = info && info.lv > 0 && info.lv < 5;
   return (
@@ -52,6 +58,16 @@ export function EditBar({ info, merging, canUndo, actions }: { info: FacetInfo; 
       <div className="flex gap-1">
         <Button size="sm" variant={merging ? "accent" : "default"} disabled={!info} onClick={actions.toggleMerge} title="Gộp với mảng kề bên (phím M)">Gộp</Button>
         <Button size="sm" disabled={!info} onClick={actions.split} title="Tách đôi mảng (phím S)">Tách</Button>
+      </div>
+      <div className="w-px self-stretch bg-line" />
+      <div className="flex items-center gap-1">
+        <Button size="sm" variant={keep.on ? "accent" : "default"} onClick={actions.toggleKeep}
+          title="Giữ nguyên vùng ảnh gốc (mắt...), chỉ đổi sang trắng đen (phím K)">◉ Giữ nguyên</Button>
+        {keep.on && <>
+          <Button size="sm" onClick={() => actions.keepSize(-1)} title="Thu nhỏ vùng (phím [)">−</Button>
+          <span className="min-w-9 text-center text-[12.5px] tabular-nums">{(keep.frac * 100).toFixed(1)}%</span>
+          <Button size="sm" onClick={() => actions.keepSize(1)} title="Phóng to vùng (phím ])">+</Button>
+        </>}
       </div>
       <div className="w-px self-stretch bg-line" />
       <Button size="sm" disabled={!canUndo} onClick={actions.undo} title="Hoàn tác (⌘Z)">↶ Hoàn tác</Button>

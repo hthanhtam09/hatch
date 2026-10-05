@@ -1,5 +1,5 @@
 "use client";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { uid, useStore } from "@/lib/store";
 import { Button, cx } from "../ui";
 import { useUpload } from "./useUploader";
@@ -10,6 +10,36 @@ export function DesignRail() {
   const { update, setCur } = useStore.getState();
   const upload = useUpload();
   const input = useRef<HTMLInputElement>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const anchor = useRef(cur);
+  const live = new Set(designs.map((d) => d.uid));
+  const sel = [...picked].filter((u) => live.has(u));   // bo uid da bi xoa/doi du an
+
+  const toggle = (i: number, range: boolean) => {
+    const next = new Set(sel);
+    if (range) {
+      const [a, b] = [Math.min(anchor.current, i), Math.max(anchor.current, i)];
+      for (let k = a; k <= b; k++) next.add(designs[k].uid);
+    } else {
+      const u = designs[i].uid;
+      if (next.has(u)) next.delete(u); else next.add(u);
+      anchor.current = i;
+    }
+    setPicked(next);
+  };
+
+  const delMany = () => {
+    if (!sel.length || !confirm(`Xoá ${sel.length} tranh khỏi sách?`)) return;
+    const gone = new Set(sel);
+    const curUid = designs[cur]?.uid;
+    let next = -1;
+    update((p) => {
+      p.designs = p.designs.filter((d) => !gone.has(d.uid));
+      next = Math.min(Math.max(p.designs.findIndex((d) => d.uid === curUid), 0), p.designs.length - 1);
+    });
+    setPicked(new Set());
+    setCur(next);
+  };
 
   const act = (i: number, a: "up" | "down" | "dup" | "del") => {
     let next = i;
@@ -31,6 +61,21 @@ export function DesignRail() {
         <input ref={input} type="file" accept=".png,.jpg,.jpeg,.webp" multiple hidden
           onChange={(e) => { if (e.target.files) upload(e.target.files); e.target.value = ""; }} />
       </div>
+      {designs.length > 1 && (
+        <div className="flex items-center gap-1.5 border-b border-line px-3 py-1.5 text-[12px]">
+          {sel.length ? <>
+            <span className="font-bold">Đã chọn {sel.length}</span>
+            <span className="flex-1" />
+            {sel.length < designs.length && <button className="text-muted hover:text-ink" onClick={() => setPicked(new Set(designs.map((d) => d.uid)))}>Tất cả</button>}
+            <button className="text-muted hover:text-ink" onClick={() => setPicked(new Set())}>Bỏ chọn</button>
+            <button className="font-bold text-red-600 hover:underline" onClick={delMany}>Xoá</button>
+          </> : <>
+            <span className="text-muted">⌘/Shift + bấm để chọn nhiều</span>
+            <span className="flex-1" />
+            <button className="text-muted hover:text-ink" onClick={() => setPicked(new Set(designs.map((d) => d.uid)))}>Chọn tất cả</button>
+          </>}
+        </div>
+      )}
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2.5">
         {!designs.length && (
           <div className="rounded-xl border-[1.5px] border-dashed border-line2 px-2.5 py-4 text-center text-[12.5px] text-muted">
@@ -39,10 +84,17 @@ export function DesignRail() {
         )}
         {designs.map((d, i) => (
           <div
-            key={d.uid} tabIndex={0} onClick={() => setCur(i)} onKeyDown={(e) => e.key === "Enter" && setCur(i)}
+            key={d.uid} tabIndex={0}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey) { toggle(i, false); return; }
+              if (e.shiftKey) { toggle(i, true); return; }
+              anchor.current = i; setCur(i);
+            }}
+            onKeyDown={(e) => e.key === "Enter" && setCur(i)}
             className={cx(
               "group relative grid cursor-pointer grid-cols-[52px_1fr] items-center gap-2.5 rounded-xl border-[1.5px] p-1.5",
               i === cur ? "border-ink bg-soft" : "border-transparent hover:bg-soft",
+              picked.has(d.uid) && "bg-accent-soft ring-2 ring-accent",
             )}
           >
             <div className="grid aspect-[8.5/11] w-[52px] place-items-center overflow-hidden rounded-sm border border-line bg-white">
