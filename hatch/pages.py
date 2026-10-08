@@ -4,6 +4,7 @@ Noi dung tieng Anh (thi truong KDP), cau chu tu viet, khong lay tu sach mau.
 Moi chu va hinh deu nam trong vung an toan (geom.safe).
 """
 import random
+from dataclasses import replace
 
 import numpy as np
 from shapely.geometry import Polygon
@@ -11,7 +12,7 @@ from shapely.geometry import Polygon
 from . import fonts
 from .engine import Design, assign_angles
 from .layout import Box, PageGeometry
-from .render import StyleParams, draw_design, guide_segments, hatch_segments
+from .render import StyleParams, draw_design, draw_fill, draw_guide, fit_params
 
 
 def _para(be, text, x, y, w, size=10.5, lead=1.45, gray=0.0, style="regular", anchor="start"):
@@ -88,16 +89,6 @@ def copyright_page(be, geom, proj, style, page_no=None):
 
 
 # ----------------------------- trang huong dan -----------------------------
-LEGEND = [
-    (1, "Light", "Wide, even gaps"),
-    (2, "Medium", "Moderate gaps"),
-    (3, "Dark", "Lines close together"),
-    (4, "Cross-hatch", "One layer, then a second across it"),
-    (0, "No mark", "Leave the shape white"),
-    (5, "Black", "Already filled for you"),
-]
-
-
 def _sample_shape(x, y, size, k):
     """Da giac mau hoi lech de giong mang trong tranh."""
     j = [(0.08, 0.0), (1.0, 0.12), (0.88, 1.0), (0.0, 0.84)] if k % 2 else [(0.0, 0.1), (0.92, 0.0), (1.0, 0.9), (0.12, 1.0)]
@@ -112,37 +103,75 @@ def howto_page(be, geom, proj, style: StyleParams, page_no=None, include_keys=Fa
     y += 34
     y = _para(be, "Every shape in these designs holds a small mark of three gray strokes. The mark tells you "
                   "how to fill that shape with straight, parallel lines. Fill each marked shape from edge to edge "
-                  "in the direction and spacing the mark shows. Shapes with no mark stay white.",
+                  "in the direction and spacing the mark shows.",
               x, y, w, 11, 1.5, 0.1)
     y += 24
 
-    cols, cell_w = 3, w / 3
-    shape = 0.82 * 72
-    for idx, (lv, name, note) in enumerate(LEGEND):
-        cx = x + (idx % cols) * cell_w
-        cy = y + (idx // cols) * (shape + 62)
-        left = _sample_shape(cx + 6, cy, shape, idx)
-        right = _sample_shape(cx + shape + 34, cy, shape, idx)
-        for P, done in ((left, False), (right, True)):
-            poly = Polygon(P)
-            if lv == 5:
-                be.fill_poly(P, 0.0)
-            elif lv:
-                ang = (30, 120, 60, 150, 0, 0)[idx]
-                if done:
-                    segs = hatch_segments(poly, ang, style.spacing(lv))
-                    if lv == 4:
-                        segs += hatch_segments(poly, ang + 90, style.spacing(lv))
-                    be.lines(segs, style.hatch_w, 0)
-                else:
-                    be.lines(guide_segments(poly, ang, lv, style), style.guide_w, style.guide_gray)
-            be.stroke_poly(P, style.outline_w * 1.4, 0)
-        ay = cy + shape / 2
-        ax = cx + shape + 12
+    sh = 50.0
+    right = x + w * 0.64
+
+    def facet(cx, cy, k, ang, lv, done, gl=None):
+        P = _sample_shape(cx, cy, sh, k)
+        poly = Polygon(P)
+        if done:
+            draw_fill(be, poly, ang, lv, style, sample=True)
+        else:
+            draw_guide(be, poly, ang, lv, style, length=gl or 0.5 * sh)
+        be.stroke_poly(P, style.outline_w * 1.4, 0)
+
+    def arrow(ax, ay):
         be.lines([((ax, ay), (ax + 16, ay)), ((ax + 16, ay), (ax + 11, ay - 4)), ((ax + 16, ay), (ax + 11, ay + 4))], 0.9, 0.3)
-        be.text(cx + 6, cy + shape + 17, name, 11, 0, "bold", "start")
-        be.text(cx + 6, cy + shape + 31, note, 9, 0.3, "regular", "start")
-    y += 2 * (shape + 62) + 10
+
+    def head(n, title, see, y0):
+        be.text(x, y0 + 14, f"{n}. {title}", 15, 0, "bold", "start")
+        be.text(x, y0 + 28, see, 9.5, 0.25, "regular", "start")
+        return y0 + 36
+
+    def side(label, text, y0):
+        yy = _para(be, text, right, y0 - 2, x + w - right, 9.5, 1.4, 0.15)
+        return yy
+
+    def rule(y0):
+        be.lines([((x, y0), (x + w, y0))], 0.5, 0.7)
+
+    # 1. Direction: goc cua vach mau = huong gach
+    y0 = head(1, "Direction", "Three light grey guide lines inside each shape.", y)
+    for i, ang in enumerate((0, 90, 30, 120)):
+        facet(x + i * (sh + 14), y0, i, ang, 2, False)
+    facet(x + 4 * (sh + 14), y0, 0, 120, 2, True)
+    side("", "The angle of the guide lines is the direction your hatch lines should follow.", y0 + 10)
+    y = y0 + sh + 12
+    rule(y)
+    y += 8
+
+    # 2. Density: khoang cach vach mau = do day
+    y0 = head(2, "Density", "Guide lines with wider or tighter spacing.", y)
+    for j, (lv, ang) in enumerate(((1, 30), (3, 90))):
+        bx = x + j * (2 * sh + 52)
+        facet(bx, y0, j, ang, lv, False)
+        facet(bx + sh + 14, y0, j, ang, lv, True)
+    side("", "Wider spacing means a lighter area. Tighter spacing means a darker one.", y0 + 10)
+    y = y0 + sh + 12
+    rule(y)
+    y += 8
+
+    # 3. Simple hatch
+    y0 = head(3, "Simple Hatch", "One set of grey guide lines in a single direction.", y)
+    facet(x, y0, 0, 60, 2, False)
+    arrow(x + sh + 10, y0 + sh / 2)
+    facet(x + sh + 36, y0, 0, 60, 2, True)
+    side("", "Build one clean layer of parallel lines following that direction.", y0 + 10)
+    y = y0 + sh + 12
+    rule(y)
+    y += 8
+
+    # 4. Cross-hatch
+    y0 = head(4, "Cross-hatch", "Two guide sets crossing each other.", y)
+    facet(x, y0, 1, 30, 4, False)
+    arrow(x + sh + 10, y0 + sh / 2)
+    facet(x + sh + 36, y0, 1, 30, 4, True)
+    side("", "Build one direction first, then add the second crossing layer.", y0 + 10)
+    y = y0 + sh + 22
 
     be.text(x, y + 14, "Tips", 15, 0, "bold", "start")
     y += 20
@@ -196,7 +225,7 @@ def warmup_design(w, h, seed=11):
             else:
                 polys.append(np.array([a, b, c, d]))
     polys = [p.astype(float) for p in polys]
-    pattern = [1, 2, 3, 4, 2, 1, 3, 0, 2, 4, 1, 3, 5, 2, 1, 4, 3, 0]
+    pattern = [1, 2, 3, 4, 2, 1, 3, 0, 2, 4, 1, 3, 0, 2, 1, 4, 3, 0]
     levels = [pattern[k % len(pattern)] for k in range(len(polys))]
     rnd.shuffle(levels)
     angles = assign_angles(polys, levels, _neighbours(polys), 30)
@@ -219,6 +248,22 @@ def warmup_page(be, geom, proj, style, page_no=None):
 
 
 # ----------------------------- trang dap an -----------------------------
+DESIGN_FOOT_H = 16.0   # cho so trang duoi tranh, giong design_page
+
+
+def key_scale(design, box: Box, geom: PageGeometry):
+    """Ti le o dap an so voi trang tranh goc.
+
+    O dap an la ban thu nho cua trang tranh, nen khoang cach net phai thu nho dung
+    bang ti le hinh hoc; lay sai ti le thi dap an dam/nhat khac voi luc to that.
+    Moc so sanh la khung tranh cua trang khong vien (geom.content tru cho so trang).
+    """
+    c = geom.content
+    ref = fit_params(design, Box(c.x, c.y, c.w, c.h - DESIGN_FOOT_H))[0]
+    cur = fit_params(design, box)[0]
+    return cur / ref if ref > 0 else 1.0
+
+
 def keys_page(be, geom, entries, style, page_no=None, first=False):
     """entries: list cua (design, so thu tu tranh, so trang cua tranh)."""
     s = geom.safe
@@ -236,7 +281,7 @@ def keys_page(be, geom, entries, style, page_no=None, first=False):
     for k, (design, num, pno) in enumerate(entries):
         cx, cy = area.x + (k % cols) * cw, area.y + (k // cols) * ch
         box = Box(cx + 8, cy + 6, cw - 16, ch - 30)
-        draw_design(be, design, box, "key", style, guide_scale=1.0 if n == 1 else 0.6)
+        draw_design(be, design, box, "key", style, guide_scale=key_scale(design, box, geom))
         cap = f"Design {num}" + (f"  ·  page {pno}" if pno else "")
         be.text(cx + cw / 2, cy + ch - 10, cap, 9, 0.3)
     _footer(be, geom, page_no)

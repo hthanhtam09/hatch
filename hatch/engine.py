@@ -14,7 +14,7 @@ import shapely
 import shapely.affinity
 from scipy.spatial import Delaunay
 from shapely.geometry import LineString, Polygon
-from shapely.ops import split, unary_union
+from shapely.ops import polylabel, split, unary_union
 
 from .keeps import find_eyes, keep_art
 
@@ -31,6 +31,7 @@ class EngineParams:
     white: float = 0.14        # ti le mang de trang
     black: float = 0.035       # ti le mang to den dac
     min_angle_gap: int = 30    # 2 mang ke nhau lech huong toi thieu (do)
+    min_cell: float = 7.0      # ban kinh toi thieu cua mang (pt tren trang): mang nho hon bi gop vao mang ke de du cho ve pattern
     seed: int = 7
 
     @staticmethod
@@ -95,7 +96,9 @@ def _border_background(img):
     near = np.linalg.norm(border - (keys[cnt.argmax()] * 8 + 4), axis=1) < 14
     ref = border[near].mean(axis=0)
     dist = np.linalg.norm(border - ref, axis=1)
-    if (dist < 14).mean() < 0.3:
+    # nen trang tinh (giay) chi can chiem ~10% vien anh (chu the cat sat mep: nen chi con 1 goc)
+    white = ref[0] > 245 and abs(ref[1] - 128) < 4 and abs(ref[2] - 128) < 4
+    if (dist < 14).mean() < (0.1 if white else 0.3):
         return None                             # vien anh khong co mau nen ro rang
     # mau gan mau nen VA noi lien voi vien anh; so sanh voi mau nen co dinh (khong loang dan
     # theo pixel ke ben) de khong tran qua canh mem vao trong chu the. Nguong theo do nhieu cua
@@ -455,7 +458,7 @@ def _absorb_slivers(cells, region, keys, min_area):
     return [geom[i] for i in keep], [region[i] for i in keep], [keys[i] for i in keep]
 
 
-def build_facets(gray, gray_blur, mask, raster, n_points, merge_ratio, seed, rng):
+def build_facets(gray, gray_blur, mask, raster, n_points, merge_ratio, seed, rng, min_cell=0.0):
     """Cat chu the theo net chi tiet thanh tung vung, chia moi vung thanh tam giac.
     Canh mang dung lai o net (nhu mat, mo cua mau tham khao) thay vi cat ngang qua."""
     rnd = random.Random(seed)
@@ -530,11 +533,19 @@ def build_facets(gray, gray_blur, mask, raster, n_points, merge_ratio, seed, rng
     members_of = {}
     for i in range(len(cells)):
         members_of.setdefault(group[i], []).append(i)
-    polys, ftones = [], []
+    polys, ftones, fregion, fareas = [], [], [], []
     for i, members in members_of.items():
         a = areas[members]
         ftones.append(float((tones[members] * a).sum() / a.sum()))
         polys.append(np.array(cells[i].exterior.coords)[:-1])
+        fregion.append(region[i])
+        fareas.append(float(a.sum()))
+    if min_cell > 0:
+        ys, xs = np.nonzero(mask)
+        if len(xs):
+            bw, bh = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+            nominal = min(540.0 / bw, 660.0 / bh)         # pt moi pixel xap xi tren trang tranh
+            polys, ftones = _merge_small(polys, ftones, fregion, min_cell / nominal, 7.0 * facet_area)
 
     # mang ke nhau (ke ca hai ben mot net) de chon huong net khac nhau
     geoms = [Polygon(p).buffer(1.0) for p in polys]
@@ -544,6 +555,48 @@ def build_facets(gray, gray_blur, mask, raster, n_points, merge_ratio, seed, rng
         if a != b:
             nbrs[a].add(int(b))
     return polys, np.array(ftones), nbrs
+
+
+def _merge_small(polys, tones, region, min_r, max_area):
+    """Mang co ban kinh noi tiep < min_r -> gop vao mang ke cung vung co canh chung dai nhat (khong tao lo)."""
+    geoms = [Polygon(p).buffer(0) for p in polys]
+    tones = list(tones)
+    alive = [g.geom_type == "Polygon" and not g.is_empty for g in geoms]
+
+    def inr(g):
+        return polylabel(g, tolerance=0.2).distance(g.exterior)
+
+    changed = True
+    while changed:
+        changed = False
+        tree = shapely.STRtree(geoms)
+        order = sorted((i for i in range(len(geoms)) if alive[i]), key=lambda k: geoms[k].area)
+        for i in order:
+            if not alive[i] or inr(geoms[i]) >= min_r:
+                continue
+            best, best_len = None, 0.5
+            for j in tree.query(geoms[i].buffer(0.6), predicate="intersects"):
+                j = int(j)
+                if j == i or not alive[j] or region[j] != region[i]:
+                    continue
+                if geoms[i].area + geoms[j].area > max_area:
+                    continue
+                shared = geoms[i].boundary.intersection(geoms[j].buffer(0.6)).length
+                if shared > best_len:
+                    best, best_len = j, shared
+            if best is None:
+                continue
+            u = geoms[i].union(geoms[best]).buffer(0.3, join_style="mitre").buffer(-0.3, join_style="mitre").simplify(0.2)
+            if u.geom_type != "Polygon" or u.interiors:
+                continue
+            ai, aj = geoms[i].area, geoms[best].area
+            tones[best] = (tones[i] * ai + tones[best] * aj) / (ai + aj)
+            geoms[best] = u
+            alive[i] = False
+            changed = True
+            tree = shapely.STRtree([g if alive[k] else Polygon() for k, g in enumerate(geoms)])
+    keep = [i for i in range(len(geoms)) if alive[i]]
+    return [np.array(geoms[i].exterior.coords)[:-1] for i in keep], [tones[i] for i in keep]
 
 
 def assign_levels(tones, white, black):
@@ -624,6 +677,29 @@ def dark_accents(gray_blur, mask, line_w=3.0):
     return out
 
 
+def solid_dark(raw, mask, line_w=3.0):
+    """Vung den dac that cua anh goc (chan, tai, long): to den nguyen khoi theo pixel goc,
+    khong bi net muc / mang bo sot hoac khoet thanh lo trang. Net muc manh (mong) khong tinh vi da co lop net."""
+    g = cv2.GaussianBlur(raw, (0, 0), 1.2)
+    d = ((g <= 55) & (mask > 0)).astype(np.uint8)
+    k = max(5, int(round(2.2 * line_w)) | 1)
+    core = cv2.morphologyEx(d, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    if not core.any():
+        return []
+    # nong lai trong vung toi de lay du mep, roi lap lo nho
+    grown = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))) & d
+    grown = cv2.morphologyEx(grown, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    cnts, hier = cv2.findContours(grown, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+    out = []
+    for c, hh in zip(cnts, hier[0]):
+        if hh[3] != -1 or cv2.contourArea(c) < 60:       # chi lay vien ngoai; lo ben trong duoc lap
+            continue
+        c = cv2.approxPolyDP(c, 1.0, True)
+        if len(c) >= 3:
+            out.append(_chaikin(c[:, 0, :].astype(float), True))
+    return out
+
+
 def _snap_to_ink(mask, ink):
     """Mep mask (tach nen theo mau) nam ngoai net vien muc vai pixel (vien mo cua net).
     Got bo vien do de duong silhouette trung voi mep ngoai net muc, khong de lai 1 dai mang hep
@@ -659,7 +735,7 @@ def make_design(image_bytes: bytes, params: EngineParams) -> Design:
     if not full and inks:
         mask = _snap_to_ink(mask, raster)
     polys, tones, nbrs = build_facets(gray, gray_blur, mask, raster, max(params.facets, 30),
-                                      params.merge, params.seed, rng)
+                                      params.merge, params.seed, rng, params.min_cell)
     levels = assign_levels(tones, params.white, params.black)
     _limit_black(polys, tones, levels, nbrs)
     angles = assign_angles(polys, levels, nbrs, params.min_angle_gap)
@@ -672,6 +748,8 @@ def make_design(image_bytes: bytes, params: EngineParams) -> Design:
             sil.append(s if full else _chaikin(s, True, 1))
 
     accents = dark_accents(gray_blur, mask, line_w) if params.accents else []
+    if params.accents:
+        accents += solid_dark(raw, mask, line_w)
 
     h, w = gray.shape
     stats = {

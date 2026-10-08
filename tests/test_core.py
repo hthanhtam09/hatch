@@ -11,7 +11,10 @@ from hatch.cover import cover_geometry              # noqa: E402
 from hatch.edits import apply_edits                 # noqa: E402
 from hatch.engine import EngineParams, make_design  # noqa: E402
 from hatch.layout import min_gutter_in              # noqa: E402
+from hatch.layout import Box                        # noqa: E402
+from hatch.pages import DESIGN_FOOT_H, key_scale    # noqa: E402
 from hatch.project import normalize                 # noqa: E402
+from hatch.render import StyleParams, guide_segments  # noqa: E402
 
 with open(os.path.join(ROOT, "samples", "cat.jpg"), "rb") as f:
     CAT = f.read()
@@ -41,6 +44,77 @@ class EngineTest(unittest.TestCase):
         d = apply_edits(DESIGN, [{"op": "merge", "a": DESIGN.ids[0], "b": DESIGN.ids[j]}])
         self.assertEqual(len(d.polys), len(DESIGN.polys) - 1)
         self.assertEqual(d.stats["edits_skipped"], 0)
+
+
+class GuideTest(unittest.TestCase):
+    """Ky hieu tren trang chua to phai khop voi net tren trang dap an."""
+
+    def _marks(self, size, level, angle=0.0):
+        from shapely.geometry import Polygon
+        poly = Polygon([(0, 0), (size, 0), (size, size), (0, size)])
+        return guide_segments(poly, angle, level, StyleParams())
+
+    def test_guide_spacing_is_real_spacing(self):
+        import numpy as np
+        style = StyleParams()
+        for level in (1, 2, 3):
+            segs = self._marks(90, level)
+            self.assertEqual(len(segs), 3)
+            mid = sorted(np.mean([s[0], s[1]], axis=0)[1] for s in segs)
+            for a, b in zip(mid, mid[1:]):
+                self.assertAlmostEqual(b - a, style.spacing(level), places=6)
+
+    def test_guide_lies_on_fill_lines(self):
+        """Moi vach ky hieu nam tren luoi net to that: cung goc, cung khoang cach, qua cung tam (moi mang cua tranh that)."""
+        import math
+        import numpy as np
+        from shapely.geometry import Polygon
+        from hatch.render import mark_center
+        style = StyleParams()
+        checked = 0
+        for P, lv, an in zip(DESIGN.polys, DESIGN.levels, DESIGN.angles):
+            if lv not in (1, 2, 3):
+                continue
+            poly = Polygon(P)
+            if not poly.is_valid or poly.is_empty:
+                continue
+            c = mark_center(poly)[0]
+            a = math.radians(an)
+            nrm = np.array([-math.sin(a), math.cos(a)])
+            sp = style.spacing(lv)
+            gs = guide_segments(poly, an, lv, style)
+            self.assertEqual(len(gs), 3)
+            if poly.buffer(-style.spacing(lv) * 1.6).is_empty:
+                continue                      # mang nho: duoc nen khoang cach, khong con tren luoi that
+            for g in gs:
+                off = float(np.dot(np.mean(g, axis=0) - c, nrm)) / sp
+                self.assertAlmostEqual(off, round(off), places=6)
+                d = np.array(g[1]) - np.array(g[0])
+                self.assertAlmostEqual(abs(float(np.dot(d, nrm))), 0.0, places=6)
+            checked += 1
+        self.assertGreater(checked, 100)
+
+    def test_levels_stay_distinguishable(self):
+        import numpy as np
+
+        def gap(level):
+            segs = self._marks(90, level)
+            mid = sorted(np.mean([s[0], s[1]], axis=0)[1] for s in segs)
+            return mid[1] - mid[0]
+
+        self.assertGreater(gap(1), gap(2))
+        self.assertGreater(gap(2), gap(3))
+
+
+    def test_key_scale_matches_geometry(self):
+        """O dap an thu nho bao nhieu thi khoang cach net phai thu nho bay nhieu."""
+        proj = normalize({"designs": []})
+        geom = B.geometry_for(proj, "right", 24)
+        c = geom.content
+        full = Box(c.x, c.y, c.w, c.h - DESIGN_FOOT_H)
+        self.assertAlmostEqual(key_scale(DESIGN, full, geom), 1.0, places=6)
+        half = Box(c.x, c.y, full.w / 2, full.h / 2)
+        self.assertAlmostEqual(key_scale(DESIGN, half, geom), 0.5, places=6)
 
 
 class KeepTest(unittest.TestCase):
@@ -76,14 +150,14 @@ class BookTest(unittest.TestCase):
         self.assertEqual(len(seq) % 2, 0)
         self.assertGreaterEqual(len(seq), 24)
         for p in seq:
-            if p["kind"] in ("design", "howto", "warmup", "title"):
+            if p["kind"] in ("design", "title"):
                 self.assertEqual(p["side"], "right")
                 self.assertEqual(seq[p["n"]]["kind"] if p["kind"] != "title" else "blank", "blank")
         self.assertEqual(seq[1]["kind"], "copyright")
 
     def test_no_padding(self):
         seq = B.plan_pages(self.proj(1, pad_to_min=False, title_page=False, copyright_page=False,
-                                     howto_page=False, warmup_page=False))
+                                     howto_page=False, warmup_page=False, training_pages=False))
         self.assertEqual([p["kind"] for p in seq], ["design", "blank"])
 
     def test_gutter(self):

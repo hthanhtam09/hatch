@@ -8,18 +8,19 @@ Cần Python 3.10+ và Node.js 20+.
 
 ```bash
 cd /Users/sincosweb/Desktop/Sin/Code/hatch-studio
-./run.sh          # chế độ phát triển, sửa giao diện thấy ngay
-./run.sh prod     # build rồi chạy bản tối ưu
+pnpm install     # lần đầu
+pnpm run dev     # chế độ phát triển, sửa giao diện thấy ngay
+pnpm start       # build rồi chạy bản tối ưu
 ```
 
-`run.sh` khởi động hai phần:
+`pnpm run dev` khởi động hai phần:
 
 | Phần | Cổng | Thư mục |
 |---|---|---|
 | API Python (Flask): xử lý ảnh, vẽ SVG/PDF, lưu dự án | 5050 | `app.py`, `hatch/` |
 | Giao diện Next.js + Tailwind CSS | 3000 | `web/` |
 
-Lần đầu chạy, script tự tạo `.venv` và chạy `npm install`. Trình duyệt sẽ tự mở http://127.0.0.1:3000. Bấm `Ctrl + C` để tắt cả hai.
+Lần đầu chạy, script tự tạo `.venv`. Mở http://127.0.0.1:3000 trên trình duyệt. Bấm `Ctrl + C` để tắt cả hai.
 
 Giao diện gọi `/api/*` và `/fonts/*` trên chính cổng 3000. Next.js tự chuyển tiếp các request này sang Flask (xem `web/next.config.ts`), nên không cần cấu hình CORS. Nếu API chạy ở địa chỉ khác, đặt biến môi trường `HATCH_API=http://host:port` khi chạy giao diện.
 

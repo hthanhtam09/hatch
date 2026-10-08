@@ -1,7 +1,7 @@
 """
 Hatch Studio - giao dien web chay tren may de tao sach to kieu low-poly + ky hieu gach net cho KDP.
 
-Chay:  ./run.sh  (Flask API o cong 5050 + giao dien Next.js o cong 3000)
+Chay:  pnpm run dev  (Flask API o cong 5050 + giao dien Next.js o cong 3000)
 """
 import hashlib
 import io

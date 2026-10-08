@@ -1,0 +1,14 @@
+{
+  "name": "hatch-studio",
+  "private": true,
+  "scripts": {
+    "setup:api": "[ -d .venv ] || (python3 -m venv .venv && ./.venv/bin/pip install --upgrade pip && ./.venv/bin/pip install -r requirements.txt)",
+    "predev": "pnpm run setup:api",
+    "dev": "concurrently -k -n api,web -c yellow,cyan \"./.venv/bin/python app.py\" \"pnpm --dir web dev -H 127.0.0.1 -p 3000\"",
+    "prestart": "pnpm run setup:api && pnpm --dir web build",
+    "start": "concurrently -k -n api,web -c yellow,cyan \"./.venv/bin/python app.py\" \"pnpm --dir web start -H 127.0.0.1 -p 3000\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

@@ -1,12 +1,13 @@
 """
 Ghep ruot sach.
 
-Thu tu: trang ten sach (p1) -> ban quyen (p2, mat sau trang ten) -> huong dan -> khoi dong -> cac tranh -> dap an.
+Thu tu: trang ten sach (p1) -> ban quyen (p2, mat sau trang ten) -> huong dan -> khoi dong 1, 2 -> luyen tap 1, 2 (dung tranh dau) -> cac tranh -> dap an.
 Trang huong dan, khoi dong va moi tranh deu nam o trang phai (trang le) va co trang trang phia sau
 (neu bat blank_back) de in mot mat. Tong so trang lam tron chan, toi thieu 24 trang (KDP).
 Cung mot ham draw_page dung cho ca PDF va anh xem truoc SVG, nen xem truoc dung voi file xuat.
 """
 from . import pages as P
+from . import lessons as L
 from .layout import page_geometry, min_gutter_in
 from .render import StyleParams, SvgBackend, design_page, overlay_guides, render_pdf
 
@@ -33,9 +34,14 @@ def plan_pages(proj):
             seq.append({"kind": "blank"})
         seq.append({"kind": "copyright"})
     if s["howto_page"]:
-        add_right({"kind": "howto"})
+        add_right({"kind": "howto"}, back=False)   # trang 4 la Warm-Up 1 ngay sau huong dan
     if s["warmup_page"]:
-        add_right({"kind": "warmup"})
+        seq.append({"kind": "warmup"})
+        seq.append({"kind": "warmup2"})
+    if s.get("training_pages"):
+        # luon du 2 trang; chua co tranh thi de trang
+        seq.append({"kind": "training", "k": 1, "i": 0} if n >= 1 else {"kind": "blank"})
+        seq.append({"kind": "training", "k": 2, "i": 1} if n >= 2 else {"kind": "blank"})
     for i in range(n):
         if blank_back:
             add_right({"kind": "design", "i": i})
@@ -82,7 +88,11 @@ def page_drawer(proj, seq, pg, resolve):
     elif kind == "howto":
         fn = lambda be: P.howto_page(be, geom, proj, style, num, proj["settings"]["include_keys"])
     elif kind == "warmup":
-        fn = lambda be: P.warmup_page(be, geom, proj, style, num)
+        fn = lambda be: L.warmup1_page(be, geom, proj, style, num)
+    elif kind == "warmup2":
+        fn = lambda be: L.warmup2_page(be, geom, proj, style, num)
+    elif kind == "training":
+        fn = lambda be: L.training_page(be, geom, resolve(pg["i"]), style, pg["k"], num)
     elif kind == "design":
         item = proj["designs"][pg["i"]]
         fn = lambda be: design_page(be, resolve(pg["i"]), geom, "page", style, bool(item.get("frame")), num)

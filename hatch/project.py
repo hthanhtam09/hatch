@@ -23,6 +23,7 @@ DEFAULTS = {
         "copyright_page": True,
         "howto_page": True,
         "warmup_page": True,
+        "training_pages": True,
         "include_keys": False,
         "keys_per_page": 4,
         "pad_to_min": True,

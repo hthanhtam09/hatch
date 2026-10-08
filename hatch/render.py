@@ -5,12 +5,14 @@ Toa do trang: point, goc tren-trai, y huong xuong.
 import html
 import io
 import math
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 
 import numpy as np
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.pdfgen.canvas import FILL_EVEN_ODD
 from shapely.geometry import LineString, MultiLineString, Polygon
+import shapely
+from shapely.ops import polylabel, unary_union
 
 from . import fonts
 from .keeps import radial_hatch
@@ -19,12 +21,15 @@ from .layout import Box, PageGeometry, PT
 
 @dataclass(frozen=True)
 class StyleParams:
-    guide_gray: float = 0.58      # 0 den .. 1 trang; ~0.55-0.65 la an toan khi in KDP
+    guide_gray: float = 0.91      # vach chua to: xam nhat (0 den .. 1 trang); ~0.7-0.8 van thay ro khi in KDP
     guide_len: float = 15.0       # do dai toi da 3 vach ky hieu (pt)
+    guide_min_gap: float = 0.0    # khoang cach vach nho nhat (pt) khi mang qua nho de nhet 3 vach; 0 = tu dong (50% khoang cach net to)
     outline_w: float = 0.6
     silhouette_w: float = 1.3
     hatch_w: float = 0.45
-    guide_w: float = 0.55
+    guide_w: float = 0.40         # vach chua to: mong hon net da to
+    trace_w: float = 1.3          # net da to san (mau/huong dan): dam, day hon vach chua to
+    trace_gray: float = 0.12
     lineart_w: float = 1.1         # net chi tiet (mat, vien hoa tiet) dam hon canh mang
     sp1: float = 6.5              # khoang cach net khi to xong (pt): thua
     sp2: float = 4.2              # vua
@@ -200,6 +205,8 @@ class PdfBackend:
 
 
 # ----------------------------- hinh hoc net -----------------------------
+
+
 def _dirs(angle_deg):
     a = math.radians(angle_deg)
     d = np.array([math.cos(a), math.sin(a)])
@@ -217,9 +224,21 @@ def _collect(inter, out):
                 out.append((g.coords[0], g.coords[-1]))
 
 
+def mark_center(poly: Polygon):
+    """Tam chung cua mang: ky hieu chua to VA luoi net to deu di qua diem nay => hai trang khop nhau.
+    Trong tam neu no nam hop ly trong mang, nguoc lai tam hinh tron noi tiep lon nhat. Tra ve (tam, ban kinh)."""
+    rp = polylabel(poly, tolerance=0.05)
+    r = poly.exterior.distance(rp)
+    cen = poly.centroid
+    if poly.contains(cen) and poly.exterior.distance(cen) >= 0.6 * r:
+        rp = cen
+        r = poly.exterior.distance(cen)
+    return np.array(rp.coords[0]), r
+
+
 def hatch_segments(poly: Polygon, angle, spacing):
     d, n = _dirs(angle)
-    c = np.array(poly.centroid.coords[0])
+    c = mark_center(poly)[0]
     minx, miny, maxx, maxy = poly.bounds
     R = math.hypot(maxx - minx, maxy - miny)
     out = []
@@ -230,22 +249,88 @@ def hatch_segments(poly: Polygon, angle, spacing):
     return out
 
 
-def guide_segments(poly: Polygon, angle, level, style: StyleParams, scale=1.0):
-    rp = poly.representative_point()
-    r = poly.exterior.distance(rp)
-    if r < 2.8:
-        return []
-    inner = poly.buffer(-0.9)
-    length = min(style.guide_len * scale, 1.5 * r)
-    sp = min((style.spacing(level) if level < 4 else 2.6) * scale, r * 0.45)
-    c = np.array(rp.coords[0])
-    out = []
-    for ang in [angle] + ([angle + 90] if level == 4 else []):
-        d, n = _dirs(ang)
-        for k in (-1, 0, 1):
-            seg = LineString([c + n * k * sp - d * length / 2, c + n * k * sp + d * length / 2])
-            _collect(seg.intersection(inner), out)
-    return out
+def _mark(c, angle, sp, n, L, cross):
+    """Ky hieu day du: n vach (1 huong) hoac luoi n x n (gach cheo), can giua tai c."""
+    offs = [k - (n - 1) / 2 for k in range(n)]
+    segs = []
+    for ang in ((angle, angle + 90) if cross else (angle,)):
+        d, nn = _dirs(ang)
+        for k in offs:
+            m = c + nn * k * sp
+            segs.append((tuple(m - d * L / 2), tuple(m + d * L / 2)))
+    return segs
+
+
+def guide_segments(poly: Polygon, angle, level, style: StyleParams, scale=1.0, free=None):
+    """Ky hieu chua to: LUON day du (3 vach, hoac luoi vuong cho gach cheo), nam giua mang.
+
+    Thu khoang cach that truoc; mang nho thi thu nho khoang cach dan (khong duoi style.guide_min_gap),
+    roi thu ngan vach. Neu van khong vua thi ve o co nho nhat tai tam (co the tran nhe ra mep) chu khong bo ky hieu.
+    """
+    c, r = mark_center(poly)
+    cross = level == 4
+    true_sp = style.spacing(level) * scale
+    gmin = min(style.guide_min_gap * scale, true_sp) if style.guide_min_gap > 0 else 0.5 * true_sp
+    pad = min(0.6 * scale, r * 0.25)
+    inner = poly.buffer(-pad)
+    if free is not None:                      # phan mang con trong sau khi tru vet muc den: ky hieu phai nam gon trong do
+        inner = inner.intersection(free.buffer(-0.3 * scale))
+    cap = style.guide_len * scale
+    sizes = (3,)   # le: cac vach nam tren luoi net to (qua tam); luon du 3 vach / luoi vuong 3x3, khong bao gio dau + hay x
+    spacings = [true_sp * (gmin / true_sp) ** (i / 8) for i in range(9)] if gmin < true_sp else [true_sp]
+    if not inner.is_empty:
+        for n in sizes:
+            for sp in spacings:
+                Lmax = max(n - 1, 1) * sp * 1.2 + sp * 0.6 if cross else min(cap, 2.0 * r)
+                Lmin = (2.0 * sp + 0.4 * scale if n > 1 else 1.2 * sp) if cross else 2.0 * scale
+                L = Lmax
+                a = math.radians(angle)
+                d, nm = np.array([math.cos(a), math.sin(a)]), np.array([-math.sin(a), math.cos(a)])
+                while L >= Lmin - 1e-9:
+                    # tam goc truoc; neu bi vet muc chan thi truot tam theo luoi net to (van cung goc, cung khoang cach)
+                    shifts = [(0.0, 0.0)]
+                    if free is not None:
+                        if cross:
+                            more = [(i * sp, j * sp) for i in (-2, -1, 0, 1, 2) for j in (-2, -1, 0, 1, 2) if i or j]
+                        else:
+                            st = 0.3 * L
+                            more = [(t * st, k * sp) for k in (0, -1, 1, -2, 2) for t in (0, -1, 1, -2, 2) if t or k]
+                        shifts += sorted(more, key=lambda q: q[0] ** 2 + q[1] ** 2)
+                    for t, k in shifts:
+                        segs = _mark(np.asarray(c, float) + t * d + k * nm, angle, sp, n, L, cross)
+                        if all(inner.contains(LineString(sg)) for sg in segs):
+                            return segs
+                    L *= 0.92
+    sp = gmin
+    L = sp * 1.2 if cross else max(2.0 * scale, min(cap, 2.0 * r))
+    return _mark(c, angle, sp, 3, (2 * sp * 1.2 + sp * 0.6) if cross else L, cross)
+
+
+# ----------------------------- BO PATTERN DUNG CHUNG -----------------------------
+# Day la dinh nghia duy nhat cua cac pattern trong "How to Use This Book": vach mau (chua to) va net to.
+# Moi trang (huong dan, khoi dong, luyen tap, tranh, dap an) chi goi cac ham nay, khong tu ve rieng.
+def fill_segments(poly: Polygon, angle, level, style: StyleParams, scale=1.0):
+    """Net to hoan chinh cua mot mang: 1 huong (muc 1-3) hoac 2 huong vuong goc (muc 4)."""
+    sp = style.spacing(level) * scale
+    segs = hatch_segments(poly, angle, sp)
+    if level == 4:
+        segs += hatch_segments(poly, angle + 90, sp)
+    return segs
+
+
+def draw_fill(be, poly: Polygon, angle, level, style: StyleParams, scale=1.0, sample=False):
+    """sample=True: nu to mau (do dam, manh hon net that); False: net muc that cua tranh/dap an."""
+    segs = fill_segments(poly, angle, level, style, scale)
+    if sample:
+        be.lines(segs, style.trace_w * 0.55, style.trace_gray)
+    else:
+        be.lines(segs, style.hatch_w, 0.0)
+
+
+def draw_guide(be, poly: Polygon, angle, level, style: StyleParams, scale=1.0, length=None):
+    """Ky hieu chua to o giua mang: 3 vach (1 huong) hoac o luoi 4x4 (gach cheo)."""
+    st = replace(style, guide_len=length) if length else style
+    be.lines(guide_segments(poly, angle, level, st, scale), style.guide_w, style.guide_gray)
 
 
 def _valid(P):
@@ -256,11 +341,88 @@ def _valid(P):
 
 
 # ----------------------------- ve 1 thiet ke vao 1 khung -----------------------------
+def subject_bbox(design):
+    """Khung bao cua chu the (x0, y0, x1, y1) theo pixel anh, bo phan nen trang quanh tranh."""
+    rings = list(design.silhouette) or list(design.polys)
+    if not rings:
+        return 0.0, 0.0, float(design.width), float(design.height)
+    pts = np.vstack([np.asarray(r, float).reshape(-1, 2) for r in rings])
+    x0, y0 = pts.min(axis=0)
+    x1, y1 = pts.max(axis=0)
+    if x1 - x0 < 1 or y1 - y0 < 1:
+        return 0.0, 0.0, float(design.width), float(design.height)
+    return float(x0), float(y0), float(x1), float(y1)
+
+
+def fit_params(design, box):
+    """(ti le, goc x, goc y) de chu the lap day khung, can giua."""
+    x0, y0, x1, y1 = subject_bbox(design)
+    s = min(box.w / (x1 - x0), box.h / (y1 - y0))
+    ox = box.x + (box.w - (x1 - x0) * s) / 2 - x0 * s
+    oy = box.y + (box.h - (y1 - y0) * s) / 2 - y0 * s
+    return s, ox, oy
+
+
 def fit_transform(design, box):
-    s = min(box.w / design.width, box.h / design.height)
-    ox = box.x + (box.w - design.width * s) / 2
-    oy = box.y + (box.h - design.height * s) / 2
+    s, ox, oy = fit_params(design, box)
     return lambda pts: np.asarray(pts) * s + (ox, oy)
+
+
+def _ink_cover(design, T, page_polys, style):
+    """Vung muc den cua tranh (mang den dac, net muc, vet den, net chi tiet) + le nho: ky hieu chua to khong duoc de len."""
+    parts = [Polygon(P) for P, lv in zip(page_polys, design.levels) if lv == 5 and len(P) >= 3]
+    parts += [Polygon(T(A)) for A in design.accents if len(A) >= 3]
+    for rings in getattr(design, "inks", ()):
+        if rings and len(rings[0]) >= 3:
+            parts.append(Polygon(T(rings[0]), [T(r) for r in rings[1:] if len(r) >= 3]))
+    parts += [LineString(T(L)).buffer(style.lineart_w / 2 + 0.6) for L in design.lines if len(L) >= 2]
+    parts += [LineString(T(S)).buffer(style.silhouette_w / 2 + 0.6) for S in design.silhouette if len(S) >= 2]
+    parts = [g.buffer(0.6) if g.is_valid else g.buffer(0).buffer(0.6) for g in parts if not g.is_empty]
+    if not parts:
+        return None
+    cover = unary_union(parts)
+    shapely.prepare(cover)
+    return cover
+
+
+def _clip_out(segs, cover, min_len=0.8):
+    """Cat bo phan net nam de len vung muc den; bo manh qua ngan."""
+    if cover is None:
+        return segs
+    out = []
+    for a, b in segs:
+        ls = LineString([a, b])
+        if not cover.intersects(ls):
+            out.append((a, b))
+            continue
+        _collect(ls.difference(cover), tmp := [])
+        out += [sg for sg in tmp if LineString(sg).length >= min_len]
+    return out
+
+
+def _fallback_guides(poly, free, angle, level, style, scale):
+    """Mang bi vet den xe nho: lay chinh cac net to that con thay duoc (phan nam trong vung trong) lam ky hieu,
+    nen chac chan khop voi trang dap an. Toi da 3 net dai nhat moi huong, cat gon quanh giua net."""
+    cap = style.guide_len * scale
+    zone = free.buffer(-0.1 * scale)
+    if zone.is_empty:
+        return []
+    sets = [angle] + ([angle + 90] if level == 4 else [])
+    sp = style.spacing(level) * scale
+    out = []
+    for a in sets:
+        cand = []
+        for p, q in hatch_segments(poly, a, sp):
+            ls = LineString([p, q]).intersection(zone)
+            for g in getattr(ls, "geoms", [ls]):
+                if g.geom_type == "LineString" and g.length >= 0.8 * scale:
+                    cand.append(g)
+        cand.sort(key=lambda g: -g.length)
+        for g in cand[:3]:
+            n = g.length
+            t0, t1 = (0.0, n) if n <= cap else ((n - cap) / 2, (n + cap) / 2)
+            out.append((tuple(g.interpolate(t0).coords[0]), tuple(g.interpolate(t1).coords[0])))
+    return out
 
 
 def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive=False, guide_scale=1.0):
@@ -273,6 +435,7 @@ def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive
             be.fill_poly(P, 0.0)
     be.end_group()
 
+    occ = _ink_cover(design, T, page_polys, style) if mode != "key" else None
     hatch, guides = [], []
     for P, lv, ang in zip(page_polys, design.levels, design.angles):
         if lv in (0, 5):
@@ -281,12 +444,21 @@ def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive
         if poly is None:
             continue
         if mode == "key":
-            sp = style.spacing(lv) * guide_scale
-            hatch += hatch_segments(poly, ang, sp)
-            if lv == 4:
-                hatch += hatch_segments(poly, ang + 90, sp)
+            hatch += fill_segments(poly, ang, lv, style, guide_scale)
         else:
-            guides += guide_segments(poly, ang, lv, style, guide_scale)
+            free = poly.difference(occ) if occ is not None and poly.intersects(occ) else None
+            g = _clip_out(guide_segments(poly, ang, lv, style, guide_scale, free), occ)
+            if not g and free is not None and not free.is_empty:
+                # mang gan nhu bi vet den phu: van phai co ky hieu o phan con trong (cung goc), khong de trang that
+                parts = [q for q in getattr(free, "geoms", [free]) if q.geom_type == "Polygon"]
+                if parts:
+                    big = max(parts, key=lambda q: q.area)
+                    g = _clip_out(guide_segments(big, ang, lv, style, guide_scale), occ)
+            if free is not None and not free.is_empty and sum(LineString(x).length for x in g) < 4.0 * guide_scale:
+                fb = _fallback_guides(poly, free, ang, lv, style, guide_scale)
+                if sum(LineString(x).length for x in fb) > sum(LineString(x).length for x in g):
+                    g = fb
+            guides += g
     be.group("hatching" if mode == "key" else "guides")
     be.lines(hatch, style.hatch_w, 0.0)
     be.lines(guides, style.guide_w, style.guide_gray)
@@ -310,13 +482,13 @@ def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive
     keeps = getattr(design, "keeps", ())
     if keeps:
         be.group("keeps")
-        s = min(box.w / design.width, box.h / design.height)
+        s = fit_params(design, box)[0]
         for kp in keeps:
             draw_keep(be, kp, T, s, style)
         be.end_group()
 
     if interactive:
-        s = min(box.w / design.width, box.h / design.height)
+        s = fit_params(design, box)[0]
         ox, oy = T([[0.0, 0.0]])[0]
         # de giao dien doi diem bam (toa do trang) -> pixel anh khi them vung giu nguyen
         be.raw(f'<g class="artmap" data-s="{s:.6f}" data-ox="{ox:.3f}" data-oy="{oy:.3f}"></g>')

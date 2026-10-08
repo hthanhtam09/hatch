@@ -80,7 +80,7 @@ def _concentric(gi, comp, px, py, re):
     Md = cv2.moments(((gi < 60) & (comp > 0)).astype(np.uint8), True)
     dx, dy = Md['m10'] / Md['m00'], Md['m01'] / Md['m00']
     off, hl_off, white = np.hypot(dx - cx, dy - cy) / re, np.hypot(px - cx, py - cy) / re, (gi[comp > 0] > 210).mean()
-    if off > 0.18 or hl_off > 0.7 or white > 0.2:
+    if off > 0.18 or hl_off > 0.9 or white > 0.2:
         return _why(f'not concentric pupil={off:.2f} hl={hl_off:.2f} white={white:.2f}')
     return True
 
@@ -116,6 +116,124 @@ def _eye_at(win, px, py, rh, scales, max_re, enclosed):
         return _why(f'core {None if core is None else core.sum() / A}')
     comp = _grow_white(comp, ink, gi, si, re)
     return comp, _shape(comp)[1]
+
+
+def _iris_at(g, hl_d, px, py, rh, side):
+    """Mat hoat hinh: con nguoi nho nhat/den, long den la mong mat mau xam-nau (khong toi), ngoai cung la vanh mi den.
+    Tu diem sang tim con nguoi (khoi den sat diem sang), lay mang mong mat sat con nguoi, nam kin trong vanh den."""
+    h, w = g.shape
+    R = int(side * 0.05)
+    x0, x1, y0, y1 = max(px - R, 0), min(px + R + 1, w), max(py - R, 0), min(py + R + 1, h)
+    win = g[y0:y1, x0:x1]
+    ox, oy = px - x0, py - y0
+    pup = np.zeros(win.shape, np.uint8)          # con nguoi hay lien voi vanh mi den nen khong tach rieng; chi dung vung quanh diem sang
+    cv2.circle(pup, (ox, oy), int(rh) + 1, 1, -1)
+    pr = max(6.0 * rh, 18.0)
+    ring = np.zeros(win.shape, np.uint8)
+    cv2.circle(ring, (ox, oy), int(pr), 1, -1)
+    ring &= 1 - pup
+    mid = ((win >= 40) & (win < 235)).astype(np.uint8)
+    n, lab = cv2.connectedComponents(mid, connectivity=4)
+    ids = [c for c in set(lab[(ring > 0) & (mid > 0)].tolist()) if c]
+    if not ids:
+        return _why('iris: no iris')
+    c = max(ids, key=lambda c: int(((lab == c) & (ring > 0)).sum()))
+    iris = (lab == c).astype(np.uint8)
+    if iris[0].any() or iris[-1].any() or iris[:, 0].any() or iris[:, -1].any():
+        return _why('iris: leaks out of window')
+    comp = _fill_holes(iris | pup)
+    A, cnt, solid, re = _shape(comp)
+    if solid < 0.8 or not 2.5 * rh < re < side * 0.06:
+        return _why(f'iris shape solid={solid:.2f} re={re:.1f}')
+    edge = cv2.dilate(comp, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) & (1 - comp)
+    if (win[edge > 0] < 50).mean() < 0.85:                       # phai bi vanh den bao kin
+        return _why('iris: not enclosed by dark rim')
+    comp = cv2.dilate(comp, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))   # lay ca net vien
+    full = np.zeros(g.shape, np.uint8)
+    full[y0:y1, x0:x1] = comp
+    cnts, _ = cv2.findContours(full, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    return max(cnts, key=cv2.contourArea)
+
+
+def _cartoon_eye_at(g, mask, px, py, rh, side, hl=None):
+    """Mat hoat hinh co vanh mi den day + long den mau + cong sang (mat cao, cao...): lay khoi vanh/con nguoi toi
+    (bo net moi mong bang phep mo), gom them cac net vien mong trong vung lan can roi lay bao loi -> ca hinh hat de,
+    gom ca long den va long trang nam duoi vanh."""
+    R = int(side * 0.07)
+    x0, x1, y0, y1 = max(px - R, 0), min(px + R + 1, g.shape[1]), max(py - R, 0), min(py + R + 1, g.shape[0])
+    win = g[y0:y1, x0:x1]
+    ox, oy = px - x0, py - y0
+    dk = (win < 90).astype(np.uint8)
+    if hl is not None:                      # diem sang nam sat mep con nguoi thi coi la mot phan cua khoi toi
+        dk |= hl[y0:y1, x0:x1].astype(np.uint8)
+    k = max(3, int(round(side * 0.004))) | 1
+    core = _fill_holes(cv2.morphologyEx(dk, cv2.MORPH_OPEN, np.ones((k, k), np.uint8)))
+    n, lab = cv2.connectedComponents(core)
+    l = lab[oy, ox]
+    if not l:
+        return _why('cartoon: no dark rim around highlight')
+    c0 = (lab == l).astype(np.uint8)
+    A0 = int(c0.sum())
+    if A0 < (3 * rh) ** 2 or A0 > (side * 0.08) ** 2 or c0[0].any() or c0[-1].any() or c0[:, 0].any() or c0[:, -1].any():
+        return _why(f'cartoon: rim size {A0}')
+    rr = max(5, int(side * 0.015))
+    reg = cv2.dilate(c0, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * rr + 1, 2 * rr + 1)))
+    d2 = cv2.morphologyEx(dk & reg, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    n2, lab2 = cv2.connectedComponents(d2)
+    ids = set(lab2[c0 > 0].tolist()) - {0}
+    m = np.isin(lab2, list(ids)).astype(np.uint8)
+    pts = cv2.findNonZero(m)
+    if pts is None:
+        return _why('cartoon: empty')
+    hull = cv2.convexHull(pts)
+    hm = np.zeros(win.shape, np.uint8)
+    cv2.fillPoly(hm, [hull], 1)
+    A = int(hm.sum())
+    re = math.sqrt(A / math.pi)
+    if hm[0].any() or hm[-1].any() or hm[:, 0].any() or hm[:, -1].any() or not 2.5 * rh < re < side * 0.06:
+        return _why(f'cartoon: hull re={re:.1f}')
+    if (dk[hm > 0]).mean() < 0.25:
+        return _why('cartoon: not dark enough')
+    ring = cv2.dilate(hm, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) & (1 - hm)
+    msk = mask[y0:y1, x0:x1]
+    if ring.any() and msk[ring > 0].mean() < 0.8:
+        return _why('cartoon: edge of subject')
+    return hull[:, 0, :].astype(float) + (x0, y0), (x0, y0, x1, y1)
+
+
+def _hole_eye_at(g, mask, px, py, rh, side):
+    """Mat co vanh mi toi khep kin bao quanh long sang (mau xanh, vang...): vung KHONG toi chua diem sang, bi vanh toi
+    bao kin (khong cham mep cua so) va co kich thuoc nhu 1 con mat -> lay bao loi."""
+    R = int(side * 0.07)
+    x0, x1, y0, y1 = max(px - R, 0), min(px + R + 1, g.shape[1]), max(py - R, 0), min(py + R + 1, g.shape[0])
+    win = g[y0:y1, x0:x1]
+    light = (win >= 75).astype(np.uint8)
+    light = cv2.morphologyEx(light, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    n, lab = cv2.connectedComponents(light, connectivity=4)
+    l = lab[py - y0, px - x0]
+    if not l:
+        return _why('hole: highlight not in light region')
+    c = (lab == l).astype(np.uint8)
+    A = int(c.sum())
+    if c[0].any() or c[-1].any() or c[:, 0].any() or c[:, -1].any():
+        return _why('hole: region leaks')
+    re = math.sqrt(A / math.pi)
+    if not 3 * rh < re < side * 0.04:
+        return _why(f'hole: size re={re:.1f}')
+    pts = cv2.findNonZero(c)
+    hull = cv2.convexHull(pts)
+    hm = np.zeros(win.shape, np.uint8)
+    cv2.fillPoly(hm, [hull], 1)
+    if A < 0.6 * hm.sum():
+        return _why('hole: not convex enough')
+    ring = cv2.dilate(hm, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))) & (1 - hm)
+    rim = (win[ring > 0] < 75).mean()
+    bb = cv2.boundingRect(hull)
+    if rim < 0.93 or max(bb[2], bb[3]) / min(bb[2], bb[3]) > 1.5:
+        return _why('hole: rim not dark / not round')
+    if mask[y0:y1, x0:x1][ring > 0].mean() < 0.8:
+        return _why('hole: edge of subject')
+    return hull[:, 0, :].astype(float) + (x0, y0), (x0, y0, x1, y1)
 
 
 def find_eyes(img, mask):
@@ -168,6 +286,46 @@ def find_eyes(img, mask):
             taken[y0:y1, x0:x1] |= cv2.dilate(comp, np.ones((5, 5), np.uint8))
             c = cv2.approxPolyDP(cnt, 1.0, True)[:, 0, :].astype(float) + (x0, y0)
             out.append((float(cx), float(cy), c))
+    # luot cuoi: mat hoat hinh (long den mau xam/nau, vanh mi den day) ma 3 luot tren bo sot
+    for _, cx, cy, rh in cands:
+        if taken[cy, cx]:
+            continue
+        _why((cx, cy, rh, 'iris'))
+        cnt = _iris_at(g, hl_d, cx, cy, rh, side)
+        if cnt is None:
+            continue
+        taken[cnt[:, 0, 1].min():cnt[:, 0, 1].max() + 1, cnt[:, 0, 0].min():cnt[:, 0, 0].max() + 1] = 1
+        out.append((float(cx), float(cy), cv2.approxPolyDP(cnt, 1.0, True)[:, 0, :].astype(float)))
+    # luot cuoi cung: mat hoat hinh vanh mi den day (long den ca cac mau, khong theo luot nao o tren)
+    for _, cx, cy, rh in cands:
+        if taken[cy, cx]:
+            continue
+        _why((cx, cy, rh, 'cartoon'))
+        found = _cartoon_eye_at(g, mask, cx, cy, rh, side, hl_d)
+        if found is None:
+            continue
+        ring, (x0, y0, x1, y1) = found
+        hm = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(hm, [np.round(ring).astype(np.int32)], 1)
+        taken |= cv2.dilate(hm, np.ones((5, 5), np.uint8))
+        out.append((float(cx), float(cy), ring))
+    # luot rat cuoi: mat co vanh mi toi khep kin quanh long sang, xet moi diem sang nho (khong can qua loc nen toi)
+    hl2 = ((g > 238) & (sat < 50) & (mask > 0)).astype(np.uint8)
+    n2, _, st2, cen2 = cv2.connectedComponentsWithStats(hl2)
+    allc = sorted([(st2[i, 4], int(cen2[i][0]), int(cen2[i][1]), max(st2[i, 2], st2[i, 3]) / 2)
+                   for i in range(1, n2) if 3 <= st2[i, 4] <= (side * 0.03) ** 2], reverse=True)[:150]
+    for _, cx, cy, rh in allc:
+        if taken[cy, cx]:
+            continue
+        _why((cx, cy, rh, 'hole'))
+        found = _hole_eye_at(g, mask, cx, cy, rh, side)
+        if found is None:
+            continue
+        ring, _ = found
+        hm = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(hm, [np.round(ring).astype(np.int32)], 1)
+        taken |= cv2.dilate(hm, np.ones((5, 5), np.uint8))
+        out.append((float(cx), float(cy), ring))
     return out
 
 
