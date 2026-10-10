@@ -259,15 +259,25 @@ def find_eyes(img, mask):
     # loc nhanh: diem sang nho, nam tren nen toi; xet truoc cac diem toi nhat, toi da 60 diem (anh line art
     # co hang nghin khe trang giua cac net)
     cands = []
+    warm = set()
     for i in range(1, n):
         if not small[i]:
             continue
         bw, bh = st[i, 2], st[i, 3]
         cx, cy = int(cen[i][0]), int(cen[i][1])
         rh = max(bw, bh) / 2
+        if st[i, 4] < 0.15 * math.pi * rh * rh:
+            continue                     # diem sang dai/meo (nanh, rang, vet cong) khong phai catchlight tron
         q = int(2.5 * rh + 4)
         dark_frac = (g[max(cy - q, 0):cy + q + 1, max(cx - q, 0):cx + q + 1] < 60).mean()
-        if dark_frac >= 0.3 and mask[cy, cx]:
+        if not mask[cy, cx] or dark_frac < 0.3:
+            continue
+        # diem sang trang tinh la mat chac chan; diem sang ngả kem/nau (vet tren tai, soc) chi la 'am', chi giu neu
+        # co mat chac chan cung hang va cung co o ben canh (xem cuoi ham)
+        if sat[lab_hl == i].mean() < 50 or g[lab_hl == i].max() >= 232:
+            cands.append((dark_frac, cx, cy, rh))
+        else:
+            warm.add((cx, cy))
             cands.append((dark_frac, cx, cy, rh))
     cands = sorted(cands, reverse=True)[:60]
     out = []
@@ -326,7 +336,15 @@ def find_eyes(img, mask):
         cv2.fillPoly(hm, [np.round(ring).astype(np.int32)], 1)
         taken |= cv2.dilate(hm, np.ones((5, 5), np.uint8))
         out.append((float(cx), float(cy), ring))
-    return out
+    sure = [(cx, cy, cv2.contourArea(c.astype(np.float32))) for cx, cy, c in out if (int(cx), int(cy)) not in warm]
+    keep = []
+    for cx, cy, c in out:
+        if (int(cx), int(cy)) in warm:
+            a = cv2.contourArea(c.astype(np.float32))
+            if not any(abs(cy - sy) < 0.1 * side and 0.4 < a / max(sa, 1) < 2.5 for sx, sy, sa in sure):
+                continue
+        keep.append((cx, cy, c))
+    return keep
 
 
 def _rings(binary, x0, y0, min_area=4):

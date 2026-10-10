@@ -572,12 +572,12 @@ def _merge_small(polys, tones, region, min_r, max_area):
         tree = shapely.STRtree(geoms)
         order = sorted((i for i in range(len(geoms)) if alive[i]), key=lambda k: geoms[k].area)
         for i in order:
-            if not alive[i] or inr(geoms[i]) >= min_r:
+            if not alive[i] or geoms[i].is_empty or inr(geoms[i]) >= min_r:
                 continue
             best, best_len = None, 0.5
             for j in tree.query(geoms[i].buffer(0.6), predicate="intersects"):
                 j = int(j)
-                if j == i or not alive[j] or region[j] != region[i]:
+                if j == i or not alive[j] or geoms[j].is_empty or region[j] != region[i]:
                     continue
                 if geoms[i].area + geoms[j].area > max_area:
                     continue
@@ -587,7 +587,7 @@ def _merge_small(polys, tones, region, min_r, max_area):
             if best is None:
                 continue
             u = geoms[i].union(geoms[best]).buffer(0.3, join_style="mitre").buffer(-0.3, join_style="mitre").simplify(0.2)
-            if u.geom_type != "Polygon" or u.interiors:
+            if u.is_empty or u.geom_type != "Polygon" or u.interiors:
                 continue
             ai, aj = geoms[i].area, geoms[best].area
             tones[best] = (tones[i] * ai + tones[best] * aj) / (ai + aj)
@@ -613,19 +613,21 @@ def assign_levels(tones, white, black):
 
 
 def _limit_black(polys, tones, levels, nbrs):
-    """Mang to den dac: vung den that (tone < 15, vd nen den) giu nguyen; mang chi toi (long den, bong)
-    chi to den khi cum mang den lien nhau van nho (mui, con nguoi) -> khong thanh khoi den lon."""
+    """Mang to den dac chi khi cum mang den lien nhau van nho (mui, con nguoi) -> khong thanh khoi den lon.
+    Vung den that (tone < 15) duoc phep cum lon hon, nhung khoi den chiem qua nhieu chu the (bong co, chan den)
+    van ha xuong gach cheo: trang to mau khong de mang den lon."""
     idx = np.flatnonzero(levels == 5)
     if not len(idx):
         return
     areas = np.array([Polygon(p).area for p in polys])
     cap = 3 * np.median(areas)
+    big = 0.04 * areas.sum()
     cluster = {}                                  # mang den -> id cum; dien tich tung cum
     size = {}
     for i in sorted(idx, key=lambda i: tones[i]):
         near = {cluster[j] for j in nbrs[i] if j in cluster}
         total = areas[i] + sum(size[c] for c in near)
-        if tones[i] >= 15 and total > cap:
+        if total > (big if tones[i] < 15 else cap):
             levels[i] = 4
             continue
         cid = int(i)
@@ -659,11 +661,13 @@ def assign_angles(polys, levels, nbrs, gap):
     return angles
 
 
-def dark_accents(gray_blur, mask, line_w=3.0):
+def dark_accents(gray_blur, mask, line_w=3.0, thick=None):
     """Mang den dac (con nguoi, mui). Mo bang nhan lon hon be rong net de net muc khong bi to thanh mang."""
     inside = gray_blur[mask > 0]
     thr = min(45.0, float(np.percentile(inside, 2.5)))
     b = ((gray_blur <= thr) & (mask > 0)).astype(np.uint8)
+    if thick is not None:
+        b &= 1 - thick
     k = max(3, int(round(1.6 * line_w)) | 1)
     b = cv2.morphologyEx(b, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
     cnts, _ = cv2.findContours(b, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -677,11 +681,40 @@ def dark_accents(gray_blur, mask, line_w=3.0):
     return out
 
 
-def solid_dark(raw, mask, line_w=3.0):
+THICK_DARK = 0.022     # khoi den day hon ~4.5% canh lon chu the thi khong to den dac (trang to mau can cho de to)
+PURE_BLACK = 12        # khoi day ma den tuyet doi (max kenh mau <= nay) la chu y thiet ke (chan den...) -> giu den
+
+
+def thick_dark(dark, mask, img=None):
+    """Phan 'day' cua vung den (vua mot hinh tron duong kinh ~4.5% chu the): bong co, chan den, vien canh den rong.
+    Trang to mau ma co khoi den lon thi khong con gi de to va nhin nang ne -> phan nay de mang gach cheo (muc 4).
+    Phan mong (soc van, dom, vien canh hep, mieng, con nguoi) van giu den."""
+    ys, xs = np.nonzero(mask)
+    if not len(xs):
+        return np.zeros_like(dark)
+    r = int(THICK_DARK * max(xs.max() - xs.min(), ys.max() - ys.min()))
+    if r < 4:
+        return np.zeros_like(dark)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    thick = cv2.morphologyEx(dark.astype(np.uint8), cv2.MORPH_OPEN, k)
+    if img is not None:
+        # chi bo to den cho khoi mau SAM (bong, mieng do sam, long nau sam); khoi den tuyet doi giu nhu anh goc
+        v = img.max(axis=2) if img.ndim == 3 else img
+        n, lab = cv2.connectedComponents(thick)
+        for i in range(1, n):
+            sel = lab == i
+            if np.median(v[sel]) <= PURE_BLACK:
+                thick[sel] = 0
+    return thick
+
+
+def solid_dark(raw, mask, line_w=3.0, thick=None):
     """Vung den dac that cua anh goc (chan, tai, long): to den nguyen khoi theo pixel goc,
     khong bi net muc / mang bo sot hoac khoet thanh lo trang. Net muc manh (mong) khong tinh vi da co lop net."""
     g = cv2.GaussianBlur(raw, (0, 0), 1.2)
     d = ((g <= 55) & (mask > 0)).astype(np.uint8)
+    if thick is not None:
+        d &= 1 - thick                      # khoi den day (co, chan, canh den) -> de mang gach cheo, khong to den
     k = max(5, int(round(2.2 * line_w)) | 1)
     core = cv2.morphologyEx(d, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
     if not core.any():
@@ -689,14 +722,42 @@ def solid_dark(raw, mask, line_w=3.0):
     # nong lai trong vung toi de lay du mep, roi lap lo nho
     grown = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))) & d
     grown = cv2.morphologyEx(grown, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    grown = _fill_small_holes(grown, 0.0006 * mask.sum())  # lap lo nho (vet sang); lo lon (luoi, rang trong mieng) giu nguyen
+    if thick is not None:
+        grown &= 1 - thick                                # ...nhung khong lap lai cho khoi den day vua khoet ra
     cnts, hier = cv2.findContours(grown, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
     out = []
-    for c, hh in zip(cnts, hier[0]):
-        if hh[3] != -1 or cv2.contourArea(c) < 60:       # chi lay vien ngoai; lo ben trong duoc lap
+    for i, (c, hh) in enumerate(zip(cnts, hier[0])):
+        if hh[3] != -1 or cv2.contourArea(c) < 60:
             continue
-        c = cv2.approxPolyDP(c, 1.0, True)
-        if len(c) >= 3:
-            out.append(_chaikin(c[:, 0, :].astype(float), True))
+        holes = [cnts[j][:, 0, :] for j in range(len(cnts)) if hier[0][j][3] == i and len(cnts[j]) >= 3]
+        if not holes:
+            c = cv2.approxPolyDP(c, 1.0, True)
+            if len(c) >= 3:
+                out.append(_chaikin(c[:, 0, :].astype(float), True))
+            continue
+        # vien den bao quanh khoi da khoet: cat thanh cac manh khong lo (lop accents chi ve vien ngoai)
+        for part in _parts(Polygon(c[:, 0, :], holes).buffer(0), 60):
+            a = np.asarray(part.simplify(1.0).exterior.coords)[:-1]
+            if len(a) >= 3:
+                out.append(_chaikin(a, True))
+    return out
+
+
+def _fill_holes(m):
+    inv = np.pad(1 - m, 1, constant_values=1).astype(np.uint8)
+    cv2.floodFill(inv, None, (0, 0), 2)
+    return (inv[1:-1, 1:-1] != 2).astype(np.uint8)
+
+
+def _fill_small_holes(m, max_area):
+    """Chi lap cac lo kin nho hon max_area (vet sang trong vung den); lo lon (luoi/rang/mat trong mieng den) de nguyen."""
+    holes = _fill_holes(m) & (1 - m)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(holes, connectivity=4)
+    out = m.copy()
+    for i in range(1, n):
+        if st[i, cv2.CC_STAT_AREA] <= max_area:
+            out[lab == i] = 1
     return out
 
 
@@ -747,9 +808,12 @@ def make_design(image_bytes: bytes, params: EngineParams) -> Design:
             s = cv2.approxPolyDP(c, 1.0, True)[:, 0, :].astype(float)
             sil.append(s if full else _chaikin(s, True, 1))
 
-    accents = dark_accents(gray_blur, mask, line_w) if params.accents else []
+    accents = []
     if params.accents:
-        accents += solid_dark(raw, mask, line_w)
+        dk = ((cv2.GaussianBlur(raw, (0, 0), 1.2) <= 55) & (mask > 0)).astype(np.uint8)
+        # no them de khong sot vien vun den quanh khoi den day
+        thick = cv2.dilate(thick_dark(dk, mask, img), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+        accents = dark_accents(gray_blur, mask, line_w, thick) + solid_dark(raw, mask, line_w, thick)
 
     h, w = gray.shape
     stats = {

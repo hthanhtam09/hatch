@@ -376,7 +376,7 @@ def _ink_cover(design, T, page_polys, style):
         if rings and len(rings[0]) >= 3:
             parts.append(Polygon(T(rings[0]), [T(r) for r in rings[1:] if len(r) >= 3]))
     parts += [LineString(T(L)).buffer(style.lineart_w / 2 + 0.6) for L in design.lines if len(L) >= 2]
-    parts += [LineString(T(S)).buffer(style.silhouette_w / 2 + 0.6) for S in design.silhouette if len(S) >= 2]
+    parts += [LineString(T(S)).buffer(style.silhouette_w / 2 + 0.6) for S in silhouette_strokes(design)]
     parts = [g.buffer(0.6) if g.is_valid else g.buffer(0).buffer(0.6) for g in parts if not g.is_empty]
     if not parts:
         return None
@@ -422,6 +422,39 @@ def _fallback_guides(poly, free, angle, level, style, scale):
             n = g.length
             t0, t1 = (0.0, n) if n <= cap else ((n - cap) / 2, (n + cap) / 2)
             out.append((tuple(g.interpolate(t0).coords[0]), tuple(g.interpolate(t1).coords[0])))
+    return out
+
+
+def silhouette_strokes(design, edge=2.5):
+    """Vien ngoai chu the thanh cac doan ho: bo doan nam doc mep anh (chu the bi cat o mep anh) -> khong ve
+    mot duong vien dam thang tap theo khung anh. Anh khong tach duoc nen (vien = ca khung anh) giu nguyen."""
+    w, h = design.width, design.height
+    out = []
+    for S in design.silhouette:
+        S = np.asarray(S, float)
+        if len(S) < 2:
+            continue
+        P = np.vstack([S, S[:1]])
+        on_edge = (P[:, 0] <= edge) | (P[:, 0] >= w - 1 - edge) | (P[:, 1] <= edge) | (P[:, 1] >= h - 1 - edge)
+        seg_edge = on_edge[:-1] & on_edge[1:]           # canh nam tron tren mep anh
+        if not seg_edge.any() or seg_edge.all():
+            out.append(P)
+            continue
+        k = int(np.argmax(seg_edge))                    # xoay de bat dau tu mot canh tren mep -> doan khong bi cat doi
+        n = len(seg_edge)
+        order = [(k + j) % n for j in range(n)]
+        run = []
+        for j in order:
+            if seg_edge[j]:
+                if len(run) >= 2:
+                    out.append(np.array(run))
+                run = []
+            else:
+                if not run:
+                    run.append(P[j])
+                run.append(P[j + 1])
+        if len(run) >= 2:
+            out.append(np.array(run))
     return out
 
 
@@ -475,8 +508,8 @@ def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive
     be.group("outlines")
     for P in page_polys:
         be.stroke_poly(P, style.outline_w, 0.0)
-    for S in design.silhouette:
-        be.stroke_poly(T(S), style.silhouette_w, 0.0)
+    for S in silhouette_strokes(design):
+        be.polyline(T(S), style.silhouette_w, 0.0)
     be.end_group()
 
     keeps = getattr(design, "keeps", ())
