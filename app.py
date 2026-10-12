@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import pickle
 import threading
 import time
 from collections import OrderedDict
@@ -24,16 +25,32 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 UPLOADS = os.path.join(BASE, "data", "uploads")
 EXPORTS = os.path.join(BASE, "data", "exports")
 PROJECT = os.path.join(BASE, "data", "project.json")
+DESIGN_CACHE = os.path.join(BASE, "data", "cache")
 FONTS = os.path.join(BASE, "hatch", "fonts")
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(EXPORTS, exist_ok=True)
+os.makedirs(DESIGN_CACHE, exist_ok=True)
 
 app = Flask(__name__, static_folder="static")
-app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
 _cache = OrderedDict()
 _lock = threading.Lock()
-CACHE_SIZE = 64
+CACHE_SIZE = 120              # du cho sach 100 tranh + training + anh trang trai
+_renders = OrderedDict()       # svg da ve cho /api/render: chuyen qua lai giua cac tranh khong phai ve lai
+RENDER_CACHE_SIZE = 48
+
+
+def _engine_version():
+    """Doi code engine thi cache tranh tren dia tu het hieu luc."""
+    h = hashlib.sha1()
+    for name in ("engine.py", "keeps.py"):
+        with open(os.path.join(BASE, "hatch", name), "rb") as f:
+            h.update(f.read())
+    return h.hexdigest()[:10]
+
+
+ENGINE_VERSION = _engine_version()
 
 
 def load_image(image_id):
@@ -50,7 +67,20 @@ def base_design(image_id, params: EngineParams):
         if key in _cache:
             _cache.move_to_end(key)
             return _cache[key]
-    design = make_design(load_image(image_id), params)
+    disk = os.path.join(DESIGN_CACHE, hashlib.sha1(repr((ENGINE_VERSION, image_id, params)).encode()).hexdigest() + ".pkl")
+    design = None
+    if os.path.exists(disk):
+        try:
+            with open(disk, "rb") as f:
+                design = pickle.load(f)
+        except Exception:
+            design = None
+    if design is None:
+        design = make_design(load_image(image_id), params)
+        tmp = disk + f".{threading.get_ident()}.tmp"
+        with open(tmp, "wb") as f:
+            pickle.dump(design, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, disk)
     with _lock:
         _cache[key] = design
         while len(_cache) > CACHE_SIZE:
@@ -70,6 +100,18 @@ def resolver(proj):
         if i not in memo:
             memo[i] = item_design(proj["designs"][i])
         return memo[i]
+
+    def training(i):
+        if ("t", i) not in memo:
+            memo[("t", i)] = item_design(proj["training"][i])
+        return memo[("t", i)]
+    resolve.training = training
+
+    def filler(j):
+        if ("f", j) not in memo:
+            memo[("f", j)] = item_design(proj["fillers"][j])
+        return memo[("f", j)]
+    resolve.filler = filler
     return resolve
 
 
@@ -165,14 +207,27 @@ def render():
     d = request.get_json(force=True)
     t0 = time.time()
     proj, item, geom, style, num = design_context(d)
-    design = item_design(item)
     show = bool(d.get("show_guides", True))
     frame = bool(item.get("frame"))
     views = d.get("views", ["page", "key"])
-    out = {v + "_svg": render_svg(design, geom, v, style, show, frame, interactive=bool(d.get("interactive")),
-                                  page_no=num) for v in views}
-    out.update(stats=design.stats, geometry=geom.info(), ms=int((time.time() - t0) * 1000))
-    return jsonify(out)
+    interactive = bool(d.get("interactive"))
+    item_key = {k: item.get(k) for k in ("image_id", "engine", "edits", "frame")}
+    key = hashlib.sha1(json.dumps([item_key, proj["style"], geom.info(), num, show, interactive, views],
+                                  sort_keys=True, default=str).encode()).hexdigest()
+    with _lock:
+        out = _renders.get(key)
+        if out is not None:
+            _renders.move_to_end(key)
+    if out is None:
+        design = item_design(item)
+        out = {v + "_svg": render_svg(design, geom, v, style, show, frame, interactive=interactive, page_no=num)
+               for v in views}
+        out.update(stats=design.stats, geometry=geom.info())
+        with _lock:
+            _renders[key] = out
+            while len(_renders) > RENDER_CACHE_SIZE:
+                _renders.popitem(last=False)
+    return jsonify({**out, "ms": int((time.time() - t0) * 1000)})
 
 
 @app.post("/api/export/design")
@@ -246,4 +301,6 @@ def cover():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
     print(f"Hatch Studio dang chay: http://127.0.0.1:{port}")
-    app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
+    # HATCH_RELOAD=1 (pnpm run dev): sua file .py la Flask tu nap lai, khong can khoi dong lai
+    app.run(host="127.0.0.1", port=port, debug=False, threaded=True,
+            use_reloader=os.environ.get("HATCH_RELOAD") == "1")

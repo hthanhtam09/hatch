@@ -12,6 +12,8 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     proxyTimeout: 300_000, // xuat sach nhieu trang co the mat vai chuc giay
+    // mac dinh Next chi chuyen tiep 10MB dau cua body: anh lon hon bi cat cut -> Flask bao loi 500
+    proxyClientMaxBodySize: "100mb",
   },
 };
 

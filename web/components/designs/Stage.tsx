@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, isAbort, lite } from "@/lib/api";
 import { useCurrent, useLiteKey, useStore } from "@/lib/store";
 import type { RenderResult } from "@/lib/types";
@@ -31,28 +31,52 @@ function toImage(e: React.MouseEvent, svg: SVGSVGElement): [number, number] | nu
   return [(p.x - ox) / s, (p.y - oy) / s];
 }
 
+// ket qua ve gan day (theo du an + tranh + che do xem): quay lai tranh vua xem thi hien ngay, khong goi lai server
+const RENDERS = new Map<string, RenderResult>();
+const RENDERS_MAX = 24;
+
+/** Bam chuoi khoa du an (co the rat dai) thanh chuoi ngan de lam khoa cache. */
+function hash(s: string) {
+  let a = 0x811c9dc5, b = 0x9e3779b9;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x5bd1e995);
+  }
+  return (a >>> 0).toString(36) + (b >>> 0).toString(36) + s.length.toString(36);
+}
+
 export function Stage({ view, setView, edit, setEdit, sel, merging, onPick, info, onInfo, actions, keep, onKeep }: Props) {
   const item = useCurrent();
   const cur = useStore((s) => s.cur);
   const key = useLiteKey();
   const [guides, setGuides] = useState(true);
   const [zoom, setZoom] = useState(620);
-  const [res, setRes] = useState<RenderResult | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [fetched, setRes] = useState<RenderResult | null>(null);
+  const [fetching, setBusy] = useState(false);
+  const keyHash = useMemo(() => hash(key), [key]);
+  const ck = `${keyHash}|${cur}|${view}|${guides}`;
+  const cached = RENDERS.get(ck);
+  const res = cached ?? fetched;
+  const busy = fetching && !cached;
   const box = useRef<HTMLDivElement>(null);
 
   // ve lai khi tranh / du an doi (anh thu nho khong nam trong key nen khong gay vong lap)
   useEffect(() => {
     const { proj, notify } = useStore.getState();
     if (!proj || !item) return;
+    if (cached) return;
     const ctrl = new AbortController();
     const t = setTimeout(async () => {
       setBusy(true);
       try {
+        const p = lite(proj);
         const r = await api.render({
-          project: lite(proj), item: lite(proj).designs[cur], index: cur, interactive: true,
+          project: p, item: p.designs[cur], index: cur, interactive: true,
           views: view === "both" ? ["page", "key"] : [view], show_guides: guides,
         }, ctrl.signal);
+        RENDERS.set(ck, r);
+        if (RENDERS.size > RENDERS_MAX) RENDERS.delete(RENDERS.keys().next().value!);
         setRes(r);
         if (r.stats.edits_skipped) notify(`${r.stats.edits_skipped} chỉnh sửa không áp dụng được (mảng không còn hoặc không kề nhau).`);
         makeThumb(item.uid);
@@ -64,7 +88,7 @@ export function Stage({ view, setView, edit, setEdit, sel, merging, onPick, info
     }, 80);
     return () => { clearTimeout(t); ctrl.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, cur, view, guides, item?.uid]);
+  }, [ck, cached, item?.uid]);
 
   // to mau mang dang chon + doc muc/huong cua no tu svg
   useLayoutEffect(() => {

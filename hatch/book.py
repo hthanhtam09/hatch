@@ -1,7 +1,7 @@
 """
 Ghep ruot sach.
 
-Thu tu: trang ten sach (p1) -> ban quyen (p2, mat sau trang ten) -> huong dan -> khoi dong 1, 2 -> luyen tap 1, 2 (dung tranh dau) -> cac tranh -> dap an.
+Thu tu: trang ten sach (p1) -> ban quyen (p2, mat sau trang ten) -> huong dan -> khoi dong 1, 2 -> luyen tap 1, 2 (anh rieng trong proj["training"]) -> cac tranh -> dap an.
 Trang huong dan, khoi dong va moi tranh deu nam o trang phai (trang le) va co trang trang phia sau
 (neu bat blank_back) de in mot mat. Tong so trang lam tron chan, toi thieu 24 trang (KDP).
 Cung mot ham draw_page dung cho ca PDF va anh xem truoc SVG, nen xem truoc dung voi file xuat.
@@ -17,15 +17,24 @@ KDP_MIN_PAGES = 24
 def plan_pages(proj):
     s = proj["settings"]
     n = len(proj["designs"])
+    nt = len(proj.get("training") or [])
     blank_back = bool(s["blank_back"])
     seq = []
 
+    nf = len(proj.get("fillers") or [])
+    nfill = 0
+
     def add_right(page, back=blank_back):
+        nonlocal nfill
         if len(seq) % 2 == 1:
             seq.append({"kind": "blank"})
         seq.append(page)
         if back:
-            seq.append({"kind": "blank"})
+            if nf and page["kind"] == "design":      # trang trai sau tranh: dien anh phu, lap vong
+                seq.append({"kind": "filler", "j": nfill % nf})
+                nfill += 1
+            else:
+                seq.append({"kind": "blank"})
 
     if s["title_page"]:
         add_right({"kind": "title"}, back=False)
@@ -39,9 +48,9 @@ def plan_pages(proj):
         seq.append({"kind": "warmup"})
         seq.append({"kind": "warmup2"})
     if s.get("training_pages"):
-        # luon du 2 trang; chua co tranh thi de trang
-        seq.append({"kind": "training", "k": 1, "i": 0} if n >= 1 else {"kind": "blank"})
-        seq.append({"kind": "training", "k": 2, "i": 1} if n >= 2 else {"kind": "blank"})
+        # luon du 2 trang; dung anh rieng (proj["training"]), chua nhap thi de trang
+        seq.append({"kind": "training", "k": 1, "i": 0} if nt >= 1 else {"kind": "blank"})
+        seq.append({"kind": "training", "k": 2, "i": 1} if nt >= 2 else {"kind": "blank"})
     for i in range(n):
         if blank_back:
             add_right({"kind": "design", "i": i})
@@ -92,7 +101,9 @@ def page_drawer(proj, seq, pg, resolve):
     elif kind == "warmup2":
         fn = lambda be: L.warmup2_page(be, geom, proj, style, num)
     elif kind == "training":
-        fn = lambda be: L.training_page(be, geom, resolve(pg["i"]), style, pg["k"], num)
+        fn = lambda be: L.training_page(be, geom, resolve.training(pg["i"]), style, pg["k"], num)
+    elif kind == "filler":
+        fn = lambda be: design_page(be, resolve.filler(pg["j"]), geom, "page", style, False, num)
     elif kind == "design":
         item = proj["designs"][pg["i"]]
         fn = lambda be: design_page(be, resolve(pg["i"]), geom, "page", style, bool(item.get("frame")), num)

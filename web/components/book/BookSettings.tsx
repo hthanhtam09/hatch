@@ -1,6 +1,7 @@
 "use client";
-import { fmt } from "@/lib/defaults";
-import { useStore } from "@/lib/store";
+import { api } from "@/lib/api";
+import { ENGINE_DEFAULTS, fmt } from "@/lib/defaults";
+import { uid, useStore } from "@/lib/store";
 import type { Settings, Style } from "@/lib/types";
 import { Check, Hint, Section, Seg, Slider, TextField } from "../ui";
 
@@ -32,9 +33,12 @@ export function BookSettings() {
         <Check label="Trang bản quyền" checked={st.copyright_page} onChange={set("copyright_page")} />
         <Check label="Hướng dẫn cách tô" sub="Giải thích ký hiệu, mẹo chọn bút" checked={st.howto_page} onChange={set("howto_page")} />
         <Check label="Trang tập tô khởi động" checked={st.warmup_page} onChange={set("warmup_page")} />
+        <Check label="Trang Training 1, 2" sub="Dùng ảnh riêng, không lấy từ các tranh trong sách" checked={st.training_pages} onChange={set("training_pages")} />
+        {st.training_pages && <TrainingSlots />}
       </Section>
       <Section title="Trang tranh">
         <Check label="Trang trắng sau mỗi tranh" sub="In một mặt để mực không thấm sang tranh sau" checked={st.blank_back} onChange={set("blank_back")} />
+        {st.blank_back && <FillerSlots />}
         <Check label="Đánh số trang" checked={st.page_numbers} onChange={set("page_numbers")} />
         <Check label="Đáp án cuối sách" checked={st.include_keys} onChange={set("include_keys")} />
         {st.include_keys && (
@@ -66,5 +70,75 @@ export function BookSettings() {
         </details>
       </Section>
     </aside>
+  );
+}
+
+/** 2 o nhap anh rieng cho Training 1, 2. Bam o de chon anh, bam lai de thay. */
+function TrainingSlots() {
+  const items = useStore((s) => s.proj!.training ?? []);
+  const { update, notify } = useStore.getState();
+  const pick = async (slot: number, file?: File) => {
+    if (!file) return;
+    try {
+      const { image_id } = await api.upload(file);
+      update((q) => {
+        q.training = q.training ?? [];
+        q.training[slot] = {
+          uid: uid(), image_id, name: file.name.replace(/\.[^.]+$/, ""),
+          engine: { ...ENGINE_DEFAULTS }, edits: [], frame: false, thumb: null,
+        };
+      });
+    } catch (e) { notify((e as Error).message); }
+  };
+  return (
+    <div className="my-2 space-y-1.5">
+      {[0, 1].map((k) => (
+        <label key={k} className="flex cursor-pointer items-center gap-2 rounded border border-line px-2 py-1.5 text-[13px] hover:bg-bg">
+          <span className="flex-none font-medium">Training {k + 1}</span>
+          <span className="min-w-0 flex-1 truncate text-muted">{items[k]?.name ?? "Chọn ảnh…"}</span>
+          <input type="file" accept=".png,.jpg,.jpeg,.webp" className="hidden"
+            onChange={(e) => { pick(k, e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+      ))}
+      <Hint>Chưa chọn ảnh thì trang Training để trống. Ảnh dùng cài đặt tách mảng mặc định.</Hint>
+    </div>
+  );
+}
+
+/** Anh dien vao trang trai (mat sau moi tranh): 1 anh thi lap lai, nhieu anh thi xoay vong cho den het sach. */
+function FillerSlots() {
+  const items = useStore((s) => s.proj!.fillers ?? []);
+  const { update, notify } = useStore.getState();
+  const add = async (files: FileList | null) => {
+    const list = [...(files ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    for (const f of list) {
+      try {
+        const { image_id } = await api.upload(f);
+        update((q) => {
+          q.fillers = q.fillers ?? [];
+          q.fillers.push({ uid: uid(), image_id, name: f.name.replace(/\.[^.]+$/, ""),
+            engine: { ...ENGINE_DEFAULTS }, edits: [], frame: false, thumb: null });
+        });
+      } catch (e) { notify(`${f.name}: ${(e as Error).message}`); }
+    }
+  };
+  return (
+    <div className="my-2 space-y-1.5">
+      <span className="block text-[13px]">Ảnh điền vào trang trái ({items.length})</span>
+      {items.map((it, k) => (
+        <div key={it.uid} className="flex items-center gap-2 rounded border border-line px-2 py-1 text-[13px]">
+          <span className="flex-none text-muted">{k + 1}</span>
+          <span className="min-w-0 flex-1 truncate">{it.name}</span>
+          <button type="button" className="flex-none text-muted hover:text-ink" title="Xoá"
+            onClick={() => update((q) => { q.fillers.splice(k, 1); })}>×</button>
+        </div>
+      ))}
+      <label className="block cursor-pointer rounded border border-dashed border-line px-2 py-1.5 text-center text-[13px] text-muted hover:bg-bg">
+        + Thêm ảnh
+        <input type="file" multiple accept=".png,.jpg,.jpeg,.webp" className="hidden"
+          onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
+      </label>
+      <Hint>Chưa thêm ảnh thì trang trái để trống. 1 ảnh sẽ lặp ở mọi trang trái; nhiều ảnh sẽ xoay vòng theo thứ tự cho đến hết sách.</Hint>
+    </div>
   );
 }

@@ -261,6 +261,18 @@ def _mark(c, angle, sp, n, L, cross):
     return segs
 
 
+def _marks(cs, angle, sp, n, L, cross):
+    """Nhu _mark nhung cho nhieu tam cung luc: cs (S,2) -> mang (S, so vach, 2 dau, 2)."""
+    offs = [k - (n - 1) / 2 for k in range(n)]
+    out = []
+    for ang in ((angle, angle + 90) if cross else (angle,)):
+        d, nn = _dirs(ang)
+        for k in offs:
+            m = cs + nn * k * sp
+            out.append(np.stack([m - d * L / 2, m + d * L / 2], axis=1))
+    return np.stack(out, axis=1)
+
+
 def guide_segments(poly: Polygon, angle, level, style: StyleParams, scale=1.0, free=None):
     """Ky hieu chua to: LUON day du (3 vach, hoac luoi vuong cho gach cheo), nam giua mang.
 
@@ -275,6 +287,7 @@ def guide_segments(poly: Polygon, angle, level, style: StyleParams, scale=1.0, f
     inner = poly.buffer(-pad)
     if free is not None:                      # phan mang con trong sau khi tru vet muc den: ky hieu phai nam gon trong do
         inner = inner.intersection(free.buffer(-0.3 * scale))
+    shapely.prepare(inner)                    # contains goi rat nhieu lan -> chuan bi chi muc truoc
     cap = style.guide_len * scale
     sizes = (3,)   # le: cac vach nam tren luoi net to (qua tam); luon du 3 vach / luoi vuong 3x3, khong bao gio dau + hay x
     spacings = [true_sp * (gmin / true_sp) ** (i / 8) for i in range(9)] if gmin < true_sp else [true_sp]
@@ -296,10 +309,13 @@ def guide_segments(poly: Polygon, angle, level, style: StyleParams, scale=1.0, f
                             st = 0.3 * L
                             more = [(t * st, k * sp) for k in (0, -1, 1, -2, 2) for t in (0, -1, 1, -2, 2) if t or k]
                         shifts += sorted(more, key=lambda q: q[0] ** 2 + q[1] ** 2)
-                    for t, k in shifts:
-                        segs = _mark(np.asarray(c, float) + t * d + k * nm, angle, sp, n, L, cross)
-                        if all(inner.contains(LineString(sg)) for sg in segs):
-                            return segs
+                    # thu tat ca vi tri cung luc (vector hoa, cung phep tinh nhu _mark), lay vi tri dau tien theo thu tu uu tien
+                    tk = np.array(shifts, float)
+                    cands = _marks(np.asarray(c, float) + tk[:, :1] * d + tk[:, 1:] * nm, angle, sp, n, L, cross)
+                    ok = shapely.contains(inner, shapely.linestrings(cands.reshape(-1, 2, 2)))
+                    ok = ok.reshape(len(cands), -1).all(axis=1)
+                    if ok.any():
+                        return [(tuple(a), tuple(b)) for a, b in cands[int(ok.argmax())]]
                     L *= 0.92
     sp = gmin
     L = sp * 1.2 if cross else max(2.0 * scale, min(cap, 2.0 * r))
@@ -479,7 +495,7 @@ def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive
         if mode == "key":
             hatch += fill_segments(poly, ang, lv, style, guide_scale)
         else:
-            free = poly.difference(occ) if occ is not None and poly.intersects(occ) else None
+            free = poly.difference(shapely.clip_by_rect(occ, *poly.bounds)) if occ is not None and poly.intersects(occ) else None
             g = _clip_out(guide_segments(poly, ang, lv, style, guide_scale, free), occ)
             if not g and free is not None and not free.is_empty:
                 # mang gan nhu bi vet den phu: van phai co ky hieu o phan con trong (cung goc), khong de trang that
@@ -493,7 +509,10 @@ def draw_design(be, design, box: Box, mode: str, style: StyleParams, interactive
                     g = fb
             guides += g
     be.group("hatching" if mode == "key" else "guides")
-    be.lines(hatch, style.hatch_w, 0.0)
+    # ban thu nho (dap an, preview): khoang cach net da thu nho theo guide_scale thi be day net cung phai thu nho,
+    # neu khong net giu nguyen day -> tong do dam lech so voi luc to that (qua dam). San 0.2pt de in KDP con thay.
+    hw = style.hatch_w if guide_scale >= 1.0 else max(style.hatch_w * guide_scale, min(0.2, style.hatch_w))
+    be.lines(hatch, hw, 0.0)
     be.lines(guides, style.guide_w, style.guide_gray)
     be.end_group()
 

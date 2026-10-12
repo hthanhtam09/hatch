@@ -54,6 +54,12 @@ export const useStore = create<State>((set, get) => {
         p.designs = p.designs.map((d) => ({
           ...d, uid: d.uid ?? uid(), engine: { ...ENGINE_DEFAULTS, ...d.engine }, edits: d.edits ?? [], frame: !!d.frame,
         }));
+        p.training = (p.training ?? []).map((d) => ({
+          ...d, uid: d.uid ?? uid(), engine: { ...ENGINE_DEFAULTS, ...d.engine }, edits: d.edits ?? [], frame: false,
+        }));
+        p.fillers = (p.fillers ?? []).map((d) => ({
+          ...d, uid: d.uid ?? uid(), engine: { ...ENGINE_DEFAULTS, ...d.engine }, edits: d.edits ?? [], frame: false,
+        }));
         set({
           proj: p, cur: p.designs.length ? 0 : -1,
           saveState: p.designs.length ? "Đã mở dự án đã lưu" : "Dự án mới · tự lưu khi thay đổi",

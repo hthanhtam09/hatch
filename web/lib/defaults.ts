@@ -15,7 +15,7 @@ export const LEVELS = [
 ] as const;
 
 export const KIND_LABEL = {
-  title: "Tên sách", copyright: "Bản quyền", howto: "Hướng dẫn", warmup: "Khởi động",
+  title: "Tên sách", copyright: "Bản quyền", howto: "Hướng dẫn", warmup: "Khởi động", warmup2: "Khởi động 2", training: "Luyện tập", filler: "Tranh phụ",
   design: "Tranh", keys: "Đáp án", blank: "Trắng",
 } as const;
 

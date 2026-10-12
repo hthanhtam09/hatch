@@ -13,7 +13,12 @@ async function post<T>(url: string, body: unknown, signal?: AbortSignal): Promis
 
 /** Du an gui len may chu khong kem anh thu nho cho nhe. */
 export function lite(p: Project): Project {
-  return { ...p, designs: p.designs.map(({ thumb: _thumb, ...d }) => d as DesignItem) };
+  return {
+    ...p,
+    designs: p.designs.map(({ thumb: _thumb, ...d }) => d as DesignItem),
+    fillers: (p.fillers ?? []).map(({ thumb: _thumb, ...d }) => d as DesignItem),
+    training: (p.training ?? []).map(({ thumb: _thumb, ...d }) => d as DesignItem),
+  };
 }
 
 // gioi han so request ve trang sach chay cung luc

@@ -23,7 +23,7 @@ export type DesignItem = {
 
 export type Settings = {
   bleed: boolean; padding_in: number; extra_margin_in: number; page_numbers: boolean; blank_back: boolean;
-  title_page: boolean; copyright_page: boolean; howto_page: boolean; warmup_page: boolean;
+  title_page: boolean; copyright_page: boolean; howto_page: boolean; warmup_page: boolean; training_pages: boolean;
   include_keys: boolean; keys_per_page: number; pad_to_min: boolean;
 };
 
@@ -32,6 +32,8 @@ export type Cover = { front: number; theme: "light" | "dark"; paper: "white" | "
 export type Project = {
   title: string; subtitle: string; author: string; publisher: string; isbn: string; year: number;
   back_text: string; settings: Settings; style: Style; cover: Cover; designs: DesignItem[];
+  fillers: DesignItem[];    // anh dien vao trang trai sau moi tranh, lap vong
+  training: DesignItem[];   // anh rieng cho trang Training 1, 2 (khong nam trong cac tranh cua sach)
 };
 
 export type Stats = {
@@ -41,7 +43,7 @@ export type Stats = {
 
 export type RenderResult = { page_svg?: string; key_svg?: string; stats: Stats; ms: number };
 
-export type PageKind = "title" | "copyright" | "howto" | "warmup" | "design" | "keys" | "blank";
+export type PageKind = "title" | "copyright" | "howto" | "warmup" | "warmup2" | "training" | "filler" | "design" | "keys" | "blank";
 export type PlanPage = { n: number; side: "left" | "right"; kind: PageKind; i?: number; items?: number[] };
 export type BookPlan = {
   total_pages: number; gutter_in: number; min_gutter_in: number; outside_in: number;

@@ -30,6 +30,8 @@ DEFAULTS = {
     },
     "style": {},
     "cover": {"front": 0, "theme": "light", "paper": "white", "front_mode": "key"},
+    "training": [],  # toi da 2 anh rieng cho Training 1, 2 (cung dang voi designs, khong nam trong sach)
+    "fillers": [],   # anh dien vao trang trai (mat sau moi tranh); lap vong neu it hon so trang
     "designs": [],   # {uid, image_id, name, engine:{}, edits:[], frame:bool, thumb}
 }
 
